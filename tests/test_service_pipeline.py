@@ -119,6 +119,103 @@ class OfflineTest(unittest.TestCase):
             r.run(self.chapter, 'v1', approved=True)
         self.assertEqual([c['name'] for c in fake.calls], ['review_issues'] * 3)
 
+    def test_elapsed_time_includes_review_retry_wait_and_export_not_cached_history(self):
+        clock = [0.0]
+        def advance(seconds):
+            clock[0] += seconds
+        fake = FakeProvider([RetryableError('busy', 4)])
+        complete = fake.complete
+        def timed_request(**request):
+            advance(10)
+            return complete(**request)
+        fake.complete = timed_request
+        pipeline = self.pipeline(fake, styles=('faithful',), review=True)
+        pipeline.sleep = advance
+        export = pipeline._export
+        def timed_export(*args):
+            advance(2)
+            return export(*args)
+        with patch('epub_pipeline.pipeline.time.monotonic', side_effect=lambda: clock[0]), \
+                patch.object(pipeline, '_export', side_effect=timed_export):
+            bundle = pipeline.run(self.chapter, 'v1', approved=True)
+        usage = json.loads(self.repo.artifact_path('usage.json').read_text())
+        self.assertEqual(usage['timing'], pipeline.timing)
+        self.assertEqual(usage['timing']['elapsed_seconds'], 36.0)
+        self.assertEqual(usage['timing']['status'], 'completed')
+        self.assertTrue(usage['timing']['started_at'].endswith('+00:00'))
+        self.assertTrue(usage['timing']['finished_at'].endswith('+00:00'))
+        fake = FakeProvider()
+        resumed = self.pipeline(fake, styles=('faithful',), review=True)
+        export = resumed._export
+        with patch('epub_pipeline.pipeline.time.monotonic', side_effect=lambda: clock[0]), \
+                patch.object(resumed, '_export', side_effect=timed_export):
+            self.assertEqual(resumed.run(self.chapter, 'v1', approved=True), bundle)
+        usage = json.loads(self.repo.artifact_path('usage.json').read_text())
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(usage['timing']['elapsed_seconds'], 2.0)
+        self.assertEqual(usage['this_run']['attempts'], 0)
+        self.assertEqual(usage['cache_hits_this_run'], 2)
+
+    def test_elapsed_time_is_saved_on_failure_and_keyboard_interrupt(self):
+        for failure, status in ((RuntimeError('failed'), 'failed'), (KeyboardInterrupt(), 'interrupted')):
+            with self.subTest(status=status):
+                clock = [0.0]
+                fake = FakeProvider([failure])
+                complete = fake.complete
+                def timed_request(**request):
+                    clock[0] += 7.5
+                    return complete(**request)
+                fake.complete = timed_request
+                pipeline = self.pipeline(fake, styles=('faithful',))
+                with patch('epub_pipeline.pipeline.time.monotonic', side_effect=lambda: clock[0]):
+                    with self.assertRaises(type(failure)):
+                        pipeline.run(self.chapter, 'v1', approved=True)
+                usage = json.loads(self.repo.artifact_path('usage.json').read_text())
+                self.assertEqual(usage['timing']['elapsed_seconds'], 7.5)
+                self.assertEqual(usage['timing']['status'], status)
+
+    def test_cli_prints_chapter_and_total_elapsed_time_for_all_chapters(self):
+        path = self.root / 'timed.epub'
+        epub(path, ['<section epub:type="chapter"><p>A</p></section>',
+                    '<section epub:type="chapter"><p>B</p></section>'])
+        args = build_parser().parse_args(['--provider', 'openai', '--input', str(path), '--all-chapters',
+                                         '--styles', 'faithful', '--approve-api', '--output', str(self.root / 'timed')])
+        clock = [0.0]
+        fake = FakeProvider()
+        complete = fake.complete
+        def timed_request(**request):
+            clock[0] += 61.25
+            return complete(**request)
+        fake.complete = timed_request
+        with patch('epub_pipeline.cli.OpenAIProvider.from_environment', return_value=fake), \
+                patch('epub_pipeline.cli.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('builtins.print') as output:
+            run(args)
+        lines = [call.args[0] for call in output.call_args_list]
+        self.assertIn('1장 완료 소요 시간: 1분 1초', lines)
+        self.assertIn('2장 완료 소요 시간: 1분 1초', lines)
+        self.assertIn('전체 작업 소요 시간: 2분 2초', lines)
+
+    def test_cli_prints_elapsed_time_when_interrupted(self):
+        path = self.root / 'interrupted.epub'
+        epub(path, ['<section epub:type="chapter"><p>A</p></section>'])
+        args = build_parser().parse_args(['--provider', 'openai', '--input', str(path), '--styles', 'faithful',
+                                         '--approve-api', '--output', str(self.root / 'interrupted')])
+        clock = [0.0]
+        fake = FakeProvider()
+        def interrupted_request(**request):
+            clock[0] += 3601.5
+            raise KeyboardInterrupt()
+        fake.complete = interrupted_request
+        with patch('epub_pipeline.cli.OpenAIProvider.from_environment', return_value=fake), \
+                patch('epub_pipeline.cli.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('builtins.print') as output:
+            with self.assertRaises(KeyboardInterrupt):
+                run(args)
+        lines = [call.args[0] for call in output.call_args_list]
+        self.assertIn('1장 중단 소요 시간: 1시간 0분 1초', lines)
+        self.assertIn('전체 작업 소요 시간: 1시간 0분 1초', lines)
+
     def test_interrupt_resume_only_requests_missing_batches(self):
         fake = FakeProvider([None, KeyboardInterrupt()])
         with self.assertRaises(KeyboardInterrupt):
@@ -300,9 +397,10 @@ class OfflineTest(unittest.TestCase):
         path = self.root / 'cli.epub'
         epub(path, ['<section epub:type="chapter"><p>Text</p></section>'])
         base = ['--provider', 'openai', '--input', str(path), '--output', str(self.root / 'cli-output')]
-        with patch('epub_pipeline.cli.OpenAIProvider.from_environment', side_effect=AssertionError('SDK must not be constructed')), patch('builtins.print'):
+        with patch('epub_pipeline.cli.OpenAIProvider.from_environment', side_effect=AssertionError('SDK must not be constructed')), patch('builtins.print') as output:
             for options in ([], ['--dry-run'], ['--dry-run', '--approve-api']):
                 run(build_parser().parse_args(base + options))
+        self.assertFalse(any('소요 시간:' in call.args[0] for call in output.call_args_list))
         self.assertTrue((self.root / 'cli-output/cli/chapter-01/_관리/plan.json').exists())
         self.assertFalse((self.root / 'cli-output/cli/chapter-01/_관리/manifest.json').exists())
 

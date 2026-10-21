@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -86,6 +87,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _print_elapsed(label: str, seconds: float) -> None:
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes, seconds_part = divmod(remainder, 60)
+    duration = (f"{hours}시간 " if hours else "") + f"{minutes}분 {seconds_part}초"
+    print(f"{label} 소요 시간: {duration}", flush=True)
+
+
 def run(args: argparse.Namespace) -> None:
     if args.organize_output is not None:
         if args.input or args.dry_run or args.approve_api or args.approve_plan or args.chatgpt_enable_plan:
@@ -151,42 +159,52 @@ def run(args: argparse.Namespace) -> None:
     base = book_output_path(args.input, args.output)
     provider = None
     completed = []
-    for original in selected:
-        chapter = replace(original, paragraphs=original.paragraphs[:args.sample_paragraphs]) if args.sample_paragraphs else original
-        pos = chapters.index(original)
-        before = [p for c in chapters[:pos] for p in c.paragraphs][-settings.context_items:] if settings.context_items else []
-        remaining = original.paragraphs[len(chapter.paragraphs):]
-        after = (remaining + [p for c in chapters[pos + 1:] for p in c.paragraphs])[:settings.context_items]
-        output = base / ("prologue" if chapter.kind == "prologue" else f"chapter-{chapter.index:02d}")
-        if args.sample_paragraphs:
-            output /= f"sample-{args.sample_paragraphs}"
-        repo = FileRepository(output)
-        with repo.lock():
-            pipeline = TranslationPipeline(repo, settings, rates=rates)
-            plan = pipeline.plan(chapter, source_version, before, after)
-            repo.write("plan.json", plan)
-            print(json.dumps(plan, ensure_ascii=False, indent=2))
-            if args.dry_run or not approved:
-                repo.write("source.preview.json", {"title": chapter.title, "chapter_id": chapter.chapter_id,
-                           "version": source_version, "source_file": chapter.source_file,
-                           "paragraphs": chapter.paragraphs, "ast": chapter.ast, "warnings": chapter.warnings})
-                approval_option = "--approve-plan" if args.provider == "chatgpt" else "--approve-api"
-                print(f"요청 없음: {output} ({approval_option}으로 명시적 승인)")
-                continue
-            if provider is None and plan["estimated_new_calls_without_retries"]:
-                provider = (ChatGPTProvider.from_saved_session(args.chatgpt_auth_dir, args.chatgpt_profile)
-                            if args.provider == "chatgpt" else OpenAIProvider.from_environment())
-            pipeline.provider = provider
-            bundle = pipeline.run(chapter, source_version, approved=True, sample=bool(args.sample_paragraphs),
-                                  before=before, after=after)
-            completed.append({"chapter_id": chapter.chapter_id, "revision": bundle["revision"],
-                              "manifest": str(repo.artifact_path("manifest.json").relative_to(base)),
-                              "aligned": str(repo.artifact_path(f"generations/{bundle['revision']}/aligned.json").relative_to(base))})
-            print(f"완료: {output}")
-    if args.all_chapters and approved and not args.dry_run:
-        book_repo = FileRepository(base)
-        # Chapter outputs are independently resumable; this pointer is published only after all finish.
-        name = f"book.sample-{args.sample_paragraphs}.json" if args.sample_paragraphs else "book.json"
-        with book_repo.lock():
-            book_repo.write(name, {"source_version": source_version, "sample": bool(args.sample_paragraphs),
-                                   "chapters": completed})
+    started = time.monotonic()
+    try:
+        for original in selected:
+            chapter = replace(original, paragraphs=original.paragraphs[:args.sample_paragraphs]) if args.sample_paragraphs else original
+            pos = chapters.index(original)
+            before = [p for c in chapters[:pos] for p in c.paragraphs][-settings.context_items:] if settings.context_items else []
+            remaining = original.paragraphs[len(chapter.paragraphs):]
+            after = (remaining + [p for c in chapters[pos + 1:] for p in c.paragraphs])[:settings.context_items]
+            output = base / ("prologue" if chapter.kind == "prologue" else f"chapter-{chapter.index:02d}")
+            if args.sample_paragraphs:
+                output /= f"sample-{args.sample_paragraphs}"
+            repo = FileRepository(output)
+            with repo.lock():
+                pipeline = TranslationPipeline(repo, settings, rates=rates)
+                plan = pipeline.plan(chapter, source_version, before, after)
+                repo.write("plan.json", plan)
+                print(json.dumps(plan, ensure_ascii=False, indent=2))
+                if args.dry_run or not approved:
+                    repo.write("source.preview.json", {"title": chapter.title, "chapter_id": chapter.chapter_id,
+                               "version": source_version, "source_file": chapter.source_file,
+                               "paragraphs": chapter.paragraphs, "ast": chapter.ast, "warnings": chapter.warnings})
+                    approval_option = "--approve-plan" if args.provider == "chatgpt" else "--approve-api"
+                    print(f"요청 없음: {output} ({approval_option}으로 명시적 승인)")
+                    continue
+                if provider is None and plan["estimated_new_calls_without_retries"]:
+                    provider = (ChatGPTProvider.from_saved_session(args.chatgpt_auth_dir, args.chatgpt_profile)
+                                if args.provider == "chatgpt" else OpenAIProvider.from_environment())
+                pipeline.provider = provider
+                try:
+                    bundle = pipeline.run(chapter, source_version, approved=True, sample=bool(args.sample_paragraphs),
+                                          before=before, after=after)
+                finally:
+                    if pipeline.timing is not None:
+                        status = {"completed": "완료", "interrupted": "중단", "failed": "실패"}[pipeline.timing["status"]]
+                        _print_elapsed(f"{chapter.index}장 {status}", pipeline.timing["elapsed_seconds"])
+                completed.append({"chapter_id": chapter.chapter_id, "revision": bundle["revision"],
+                                  "manifest": str(repo.artifact_path("manifest.json").relative_to(base)),
+                                  "aligned": str(repo.artifact_path(f"generations/{bundle['revision']}/aligned.json").relative_to(base))})
+                print(f"완료: {output}")
+        if args.all_chapters and approved and not args.dry_run:
+            book_repo = FileRepository(base)
+            # Chapter outputs are independently resumable; this pointer is published only after all finish.
+            name = f"book.sample-{args.sample_paragraphs}.json" if args.sample_paragraphs else "book.json"
+            with book_repo.lock():
+                book_repo.write(name, {"source_version": source_version, "sample": bool(args.sample_paragraphs),
+                                       "chapters": completed})
+    finally:
+        if approved and not args.dry_run:
+            _print_elapsed("전체 작업", time.monotonic() - started)

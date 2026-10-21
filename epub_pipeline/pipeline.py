@@ -53,6 +53,7 @@ class TranslationPipeline:
         self.run_id = uuid.uuid4().hex
         self.records = []
         self.cache_hits = 0
+        self.timing: dict | None = None
 
     def _context(self, items, start, end, before, after):
         cfg = self.settings
@@ -218,6 +219,9 @@ class TranslationPipeline:
             sample: bool = False, before=None, after=None) -> dict:
         if not approved:
             raise RuntimeError("실제 번역 실행에는 명시적 승인이 필요합니다 (--approve-api 또는 --approve-plan).")
+        started_at = datetime.now(timezone.utc).isoformat()
+        started = time.monotonic()
+        status = "failed"
         translations = {style: {} for style in self.settings.styles}
         issues = {style: [] for style in self.settings.styles}
         try:
@@ -227,11 +231,22 @@ class TranslationPipeline:
                 if self.settings.review:
                     review_req = self._review_request(request, batch, translated, style)
                     issues[style].extend(self._execute(review_req, lambda r: validate_review(batch, r)))
-            return self._export(chapter, source_version, translations, issues, sample)
+            bundle = self._export(chapter, source_version, translations, issues, sample)
+            status = "completed"
+            return bundle
+        except (KeyboardInterrupt, SystemExit):
+            status = "interrupted"
+            raise
         finally:
-            self.repo.write("usage.json", {"run_id": self.run_id, "this_run": summarize(self.records),
-                                           "output_directory_lifetime": summarize(self.repo.attempts()),
-                                           "cache_hits_this_run": self.cache_hits})
+            self.timing = {"started_at": started_at, "finished_at": datetime.now(timezone.utc).isoformat(),
+                           "elapsed_seconds": round(time.monotonic() - started, 3), "status": status}
+            try:
+                self.repo.write("usage.json", {"run_id": self.run_id, "this_run": summarize(self.records),
+                                               "output_directory_lifetime": summarize(self.repo.attempts()),
+                                               "cache_hits_this_run": self.cache_hits, "timing": self.timing})
+            except BaseException as exc:
+                self.timing["status"] = "interrupted" if isinstance(exc, (KeyboardInterrupt, SystemExit)) else "failed"
+                raise
 
     def _export(self, chapter, source_version, translations, issues, sample):
         expected = [p["id"] for p in chapter.items]
