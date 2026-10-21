@@ -44,7 +44,7 @@ class LayoutTest(unittest.TestCase):
         self.root = Path(self.temp.name) / 'book' / 'chapter-01'
         self.repo = FileRepository(self.root)
 
-    def test_legacy_migration_preserves_all_bytes_and_manifest_relative_paths(self):
+    def test_기존_출력을_이동해도_모든_파일_내용과_manifest_상대_경로를_보존한다(self):
         legacy_files(self.root)
         (self.root / 'personal-notes.txt').write_text('keep my notes')
         originals = {p.relative_to(self.root): digest(p) for p in self.root.rglob('*') if p.is_file()}
@@ -61,7 +61,7 @@ class LayoutTest(unittest.TestCase):
         with self.repo.lock():
             self.assertEqual(self.repo.last_migration, [])
 
-    def test_conflict_never_overwrites_or_partially_moves_other_files(self):
+    def test_이동_경로가_충돌하면_덮어쓰거나_다른_파일을_일부_이동하지_않는다(self):
         legacy_files(self.root)
         self.repo.readable.mkdir()
         (self.repo.readable / 'modern.md').write_text('my edited translation')
@@ -72,7 +72,7 @@ class LayoutTest(unittest.TestCase):
         self.assertTrue((self.root / '.cache/cached.json').exists())
         self.assertTrue((self.root / 'faithful.md').exists())
 
-    def test_interrupted_migration_can_resume_without_overwrite(self):
+    def test_중단된_출력_이동을_덮어쓰기_없이_재개한다(self):
         legacy_files(self.root)
         rename = Path.rename
         calls = []
@@ -91,7 +91,7 @@ class LayoutTest(unittest.TestCase):
         self.assertTrue(self.repo.load_cache('cached'))
         self.assertEqual(len(self.repo.attempts()), 1)
 
-    def test_old_writer_lock_prevents_migration(self):
+    def test_기존_실행의_잠금이_있으면_출력_이동을_차단한다(self):
         legacy_files(self.root)
         with self.repo.lock(organize=False):
             with self.assertRaisesRegex(RuntimeError, '다른 프로세스'):
@@ -100,7 +100,7 @@ class LayoutTest(unittest.TestCase):
             self.assertTrue((self.root / 'modern.md').exists())
             self.assertFalse(self.repo.readable.exists())
 
-    def test_existing_checkpoint_resume_uses_zero_new_requests(self):
+    def test_기존_체크포인트에서_재개하면_새_요청을_보내지_않는다(self):
         chapter = Chapter(1, 'Title', 'chapter.xhtml', [{'id': 'p1', 'text': 'Original'}])
         settings = Settings(model='mock', styles=('faithful',), review=True)
         fake = FakeProvider()
@@ -118,7 +118,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(fake.calls, [])
         self.assertEqual(digest(self.repo.artifact_path('faithful.md')), original)
 
-    def test_existing_book_index_is_updated_to_moved_immutable_generation(self):
+    def test_기존_책_인덱스를_이동한_스냅샷_경로로_갱신한다(self):
         legacy_files(self.root)
         index = self.root.parent / 'book.json'
         index.write_text(json.dumps({'chapters': [{'chapter_id': 'stable', 'revision': 'old-version',
@@ -131,7 +131,7 @@ class LayoutTest(unittest.TestCase):
         self.assertTrue((self.root.parent / chapter['manifest']).exists())
         self.assertTrue((self.root.parent / chapter['aligned']).exists())
 
-    def test_cli_organize_is_offline_and_requires_existing_directory(self):
+    def test_출력_정리는_오프라인으로_실행하며_기존_폴더만_허용한다(self):
         legacy_files(self.root)
         args = build_parser().parse_args(['--organize-output', str(self.root)])
         with patch('epub_pipeline.chatgpt_auth.OAuthHTTP.request', side_effect=AssertionError('No network')), patch('builtins.print'):

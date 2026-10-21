@@ -97,7 +97,7 @@ class NetworkBlocked(unittest.TestCase):
 
 
 class AuthTest(NetworkBlocked):
-    def test_new_registration_pkce_and_verified_private_storage(self):
+    def test_신규_등록에서_PKCE와_검증된_비공개_저장을_사용한다(self):
         self.login()
         auth = self.authorizations[0]
         self.assertEqual(auth['client_id'], ['dynamic_agent_client'])
@@ -115,7 +115,7 @@ class AuthTest(NetworkBlocked):
         self.assertEqual(self.store.directory.stat().st_mode & 0o777, 0o700)
         self.assertEqual(self.session.access_token(), 'access-SECRET')
 
-    def test_returning_login_uses_issued_client_and_stable_host(self):
+    def test_재로그인하면_발급된_클라이언트와_고정된_호스트를_재사용한다(self):
         self.login()
         self.login()
         first, second = self.authorizations
@@ -127,7 +127,7 @@ class AuthTest(NetworkBlocked):
         self.assertNotEqual(second['nonce'], first['nonce'])
         self.assertNotEqual(second['code_challenge'], first['code_challenge'])
 
-    def test_callback_rejects_state_errors_duplicate_fields_client_changes(self):
+    def test_콜백의_state_오류와_중복_필드와_클라이언트_변경을_거부한다(self):
         path = '/auth/callback?' + urlencode({'state': 'expected', 'code': 'code', 'client_id': 'issued'})
         self.assertEqual(consume_callback(path, 'expected', None), ('code', 'issued'))
         self.assertEqual(consume_callback('/auth/callback?state=expected&code=code', 'expected', 'issued'), ('code', 'issued'))
@@ -141,7 +141,7 @@ class AuthTest(NetworkBlocked):
         with self.assertRaises(RuntimeError):
             consume_callback('/auth/callback?state=expected&error=access_denied', 'expected', None)
 
-    def test_failed_exchange_retains_pending_registration_without_active_credentials(self):
+    def test_토큰_교환에_실패하면_인증_정보_없이_대기_등록을_유지한다(self):
         self.http.responses = [OAuthError(400, 'invalid_grant')]
         with self.assertRaises(OAuthError):
             self.login()
@@ -153,7 +153,7 @@ class AuthTest(NetworkBlocked):
         self.assertNotIn('agent_name_hint', self.authorizations[-1])
         self.assertEqual(self.store.load()['pending_registrations'], {})
 
-    def test_missing_plan_scope_retains_signin_and_prevents_models_or_inference(self):
+    def test_사용량_권한이_없으면_로그인은_유지하고_모델_조회와_추론을_차단한다(self):
         self.http.responses = [token_response(scope='openid profile email')]
         result = self.login()
         self.assertFalse(result['profiles'][0]['plan_usage_enabled'])
@@ -163,7 +163,7 @@ class AuthTest(NetworkBlocked):
         self.session.login(enable_plan=True)
         self.assertEqual(self.authorizations[-1]['prompt'], ['consent'])
 
-    def test_another_account_cannot_overwrite_existing_profile(self):
+    def test_다른_계정은_기존_프로필을_덮어쓸_수_없다(self):
         self.login()
         original = self.store.path.read_bytes()
         self.verifier.subject = 'account-2'
@@ -175,7 +175,7 @@ class AuthTest(NetworkBlocked):
         another.login()
         self.assertEqual(len(self.session.status()['profiles']), 2)
 
-    def test_refresh_rotates_credentials_once_and_never_sends_scope(self):
+    def test_토큰_갱신은_인증_정보를_한_번_교체하고_scope를_보내지_않는다(self):
         self.login()
         self.session.clock = lambda: 4550
         self.http.responses = [token_response(access_token='access-NEW', refresh_token='refresh-NEW')]
@@ -187,7 +187,7 @@ class AuthTest(NetworkBlocked):
         self.assertNotIn('scope', refreshes[0])
         self.assertEqual(self.store.load()['profiles']['default']['refresh_token'], 'refresh-NEW')
 
-    def test_terminal_refresh_error_clears_tokens_retains_account_and_client(self):
+    def test_복구할_수_없는_갱신_오류면_토큰을_지우고_계정과_클라이언트는_유지한다(self):
         self.login()
         self.session.clock = lambda: 5000
         self.http.responses = [OAuthError(400, 'refresh_token_reused')]
@@ -199,7 +199,7 @@ class AuthTest(NetworkBlocked):
         self.assertEqual(saved['client_id'], 'oaiapp_issued')
         self.assertEqual(saved['sub'], 'account-1')
 
-    def test_transient_refresh_error_preserves_credentials(self):
+    def test_일시적인_토큰_갱신_오류는_기존_인증_정보를_보존한다(self):
         self.login()
         original = self.store.path.read_bytes()
         self.session.clock = lambda: 5000
@@ -208,7 +208,7 @@ class AuthTest(NetworkBlocked):
             self.session.access_token()
         self.assertEqual(self.store.path.read_bytes(), original)
 
-    def test_logout_revokes_refresh_and_clears_local_tokens_even_on_network_failure(self):
+    def test_로그아웃은_갱신_토큰을_폐기하며_네트워크_실패에도_로컬_토큰을_지운다(self):
         self.login()
         self.http.responses = [OAuthError(None)]
         result = self.session.logout()
@@ -220,14 +220,14 @@ class AuthTest(NetworkBlocked):
         self.login()
         self.assertTrue(self.session.logout()['remote_revocation_confirmed'])
 
-    def test_status_and_model_list_never_expose_tokens(self):
+    def test_상태와_모델_목록에_토큰을_노출하지_않는다(self):
         self.login()
         self.assertEqual(self.session.models(), [{'slug': 'chosen-model', 'display_name': 'Chosen model'}])
         raw = json.dumps(self.session.status())
         for secret in ('access-SECRET', 'refresh-SECRET', 'identity-SECRET', 'authorization-SECRET'):
             self.assertNotIn(secret, raw)
 
-    def test_store_rejects_unsafe_permissions_and_symlinks(self):
+    def test_인증_저장은_안전하지_않은_권한과_심볼릭_링크를_거부한다(self):
         self.login()
         self.store.path.chmod(0o644)
         with self.assertRaisesRegex(RuntimeError, '0600'):
@@ -238,7 +238,7 @@ class AuthTest(NetworkBlocked):
         with self.assertRaisesRegex(RuntimeError, '심볼릭'):
             CredentialStore(linked).load()
 
-    def test_http_empty_revocation_response_and_secret_error_redaction(self):
+    def test_토큰_폐기의_빈_응답을_허용하고_오류에서_비밀정보를_제거한다(self):
         response = NS(read=lambda _: b'')
         class Context:
             def __enter__(self):
@@ -256,14 +256,14 @@ class AuthTest(NetworkBlocked):
         self.assertNotIn('refresh-SECRET', str(cm.exception))
         self.assertEqual(cm.exception.code, 'invalid_grant')
 
-    def test_malicious_discovery_and_http_redirect_destinations_are_rejected(self):
+    def test_악성_인증_탐색_주소와_HTTP_리다이렉트_목적지를_거부한다(self):
         self.http.request = lambda *a, **kw: {**METADATA, 'token_endpoint': 'https://attacker.invalid/steal'}
         with self.assertRaisesRegex(RuntimeError, 'endpoint'):
             self.session.metadata()
         with self.assertRaises(RuntimeError):
             OAuthHTTP().request('POST', 'http://api.openai.com/v1/responses', bearer='private')
 
-    def test_browser_callback_listener_uses_loopback_and_suppresses_url_logs(self):
+    def test_브라우저_콜백은_루프백을_사용하고_URL_로그를_남기지_않는다(self):
         paths = ['/login', '/auth/callback?state=expected&code=secret&client_id=issued']
         packets = []
         class FakeSocket:
@@ -324,7 +324,7 @@ class ProviderTest(NetworkBlocked):
     def call(self):
         return self.provider.complete('chosen-model', 'instructions', {'paragraphs': []}, {'type': 'object'}, 'schema')
 
-    def test_public_streaming_request_explicit_oauth_and_no_api_key_fallback(self):
+    def test_공개_스트리밍_요청에_OAuth를_명시하고_API_키로_전환하지_않는다(self):
         self.events = [NS(type='response.output_text.delta', delta='partial'), self.completed()]
         with patch.dict('os.environ', {'OPENAI_API_KEY': 'paid-api-SECRET', 'OPENAI_BASE_URL': 'https://attacker.invalid'}):
             response = self.call()
@@ -340,16 +340,16 @@ class ProviderTest(NetworkBlocked):
         self.assertEqual(body['text']['format']['type'], 'json_schema')
         self.assertNotIn('access-SECRET', json.dumps(body))
 
-    def test_unlisted_model_rejected_before_inference(self):
+    def test_목록에_없는_모델은_추론_전에_거부한다(self):
         with self.assertRaisesRegex(RuntimeError, '모델이 현재'):
             self.provider.complete('hidden-model', '', {}, {}, 'schema')
         self.assertEqual(self.requests, [])
 
-    def test_interrupted_stream_never_accepted_as_completed(self):
+    def test_중단된_스트림을_완료된_응답으로_처리하지_않는다(self):
         self.events = [NS(type='response.output_text.delta', delta='{"translations":[]}')]
         self.assertEqual(self.call().status, 'interrupted')
 
-    def test_stream_limit_failure_stops_without_retry_and_records_usage(self):
+    def test_스트림_사용량_한도_오류는_재시도_없이_중단하고_사용량을_기록한다(self):
         self.events = [self.completed('failed', 'subscription_sharing_usage_limit_exceeded')]
         repo = FileRepository(self.root / 'output')
         pipeline = TranslationPipeline(repo, Settings(model='chosen-model', provider='chatgpt', styles=('faithful',)),
@@ -365,13 +365,13 @@ class ProviderTest(NetworkBlocked):
         self.assertNotIn('SECRET', json.dumps(records))
         self.assertFalse((repo.artifact_path('manifest.json')).exists())
 
-    def test_temporary_plan_failure_is_retryable_with_received_usage(self):
+    def test_일시적인_구독_오류는_받은_사용량을_보존하고_재시도한다(self):
         self.events = [self.completed('failed', 'subscription_sharing_usage_unavailable')]
         response = self.call()
         self.assertTrue(response.retryable)
         self.assertEqual(response.usage['output_tokens'], 20)
 
-    def test_http_usage_limit_stops_but_ordinary_rate_limit_can_retry(self):
+    def test_구독_사용량_한도는_중단하고_일반_요청_제한은_재시도한다(self):
         class APIProblem(Exception):
             status_code = 429
             request_id = 'req-known'
@@ -390,7 +390,7 @@ class ProviderTest(NetworkBlocked):
             if isinstance(cm.exception, RetryableError):
                 self.assertEqual(cm.exception.retry_after, 2)
 
-    def test_provider_routes_have_distinct_cache_keys(self):
+    def test_공급자별로_서로_다른_캐시_키를_사용한다(self):
         repo = FileRepository(self.root / 'output')
         a = TranslationPipeline(repo, Settings(provider='openai'))
         b = TranslationPipeline(repo, Settings(provider='chatgpt'))
@@ -398,20 +398,20 @@ class ProviderTest(NetworkBlocked):
 
 
 class CLITest(NetworkBlocked):
-    def test_status_does_not_touch_network_and_prints_no_secrets(self):
+    def test_연결_상태_확인은_네트워크를_사용하거나_비밀정보를_출력하지_않는다(self):
         self.login()
         args = build_parser().parse_args(['--chatgpt-status', '--chatgpt-auth-dir', str(self.store.directory)])
         with patch('epub_pipeline.chatgpt_auth.OAuthHTTP.request', side_effect=AssertionError('No network')), patch('builtins.print') as output:
             run(args)
         self.assertNotIn('SECRET', str(output.call_args_list))
 
-    def test_no_input_or_mixed_billing_approval_is_rejected(self):
+    def test_입력이_없거나_과금_승인_방식이_섞이면_거부한다(self):
         for values in ([], ['--input', 'x', '--approve-api'], ['--input', 'x', '--provider', 'openai', '--approve-plan'],
                        ['--chatgpt-login', '--dry-run'], ['--input', 'x', '--approve-plan'], ['--chatgpt-enable-plan']):
             with self.assertRaises(ValueError):
                 run(build_parser().parse_args(values))
 
-    def test_chatgpt_dry_run_even_with_approval_does_not_load_or_refresh_session(self):
+    def test_ChatGPT_dry_run은_승인해도_세션을_읽거나_갱신하지_않는다(self):
         chapter = Chapter(1, 'T', 'c', [{'id': 'p', 'text': 'Original'}])
         epub = self.root / 'book.epub'
         epub.write_bytes(b'offline fixture')
@@ -423,7 +423,7 @@ class CLITest(NetworkBlocked):
 
 @unittest.skipUnless(importlib.util.find_spec('jwt') and importlib.util.find_spec('cryptography'), 'PyJWT[crypto] 설치 필요')
 class CryptographicIdentityTest(NetworkBlocked):
-    def test_real_rsa_signature_issuer_audience_expiry_nonce_and_tampering(self):
+    def test_실제_RSA_서명과_발급자와_대상과_만료와_nonce와_변조를_검증한다(self):
         import jwt
         from cryptography.hazmat.primitives.asymmetric import rsa
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -448,7 +448,7 @@ class CryptographicIdentityTest(NetworkBlocked):
 
 @unittest.skipUnless(importlib.util.find_spec('openai'), 'OpenAI SDK 설치 필요')
 class RealSDKStreamTest(NetworkBlocked):
-    def test_real_sdk_parses_mock_sse_without_network(self):
+    def test_실제_SDK가_네트워크_없이_모의_SSE를_해석한다(self):
         import openai
         import openai._base_client as sdk_transport
         httpx2 = getattr(sdk_transport, "httpx2", None) or getattr(sdk_transport, "httpx")

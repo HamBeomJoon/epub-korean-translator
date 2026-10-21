@@ -296,6 +296,8 @@ OpenAI Responses API 형식은 [official OpenAI documentation](https://developer
 
 ## 테스트와 남은 검증
 
+테스트 함수명은 자동 탐색을 위한 `test_` 접두사를 유지하고, 뒤에는 `test_승인이_없으면_공급자를_호출하지_않는다`처럼 검증할 동작을 한글로 작성합니다. API·EPUB·JSON 등 기술 용어는 유지합니다. 개별 테스트를 이름으로 선택할 때도 한글 이름을 사용하세요.
+
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q epub_pipeline translate_epub.py tests

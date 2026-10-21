@@ -15,22 +15,22 @@ class BookNameTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def test_default_stem_and_whitespace_are_unchanged_without_mapping(self):
+    def test_이름_매핑이_없으면_기본_파일명과_공백_처리를_유지한다(self):
         self.assertEqual(book_output_path(Path('author_title_translator.epub'), self.root), self.root / 'author_title_translator')
         self.assertEqual(book_output_path(Path('my book.epub'), self.root), self.root / 'my_book')
 
-    def test_named_book_and_other_books_resolve_independently(self):
+    def test_이름을_바꾼_책과_다른_책의_경로를_독립적으로_정한다(self):
         (self.root / '.book-names.json').write_text(json.dumps({'author_title_translator': 'author_title'}))
         self.assertEqual(book_output_path(Path('author_title_translator.epub'), self.root), self.root / 'author_title')
         self.assertEqual(book_output_path(Path('other.epub'), self.root), self.root / 'other')
 
-    def test_mapping_cannot_escape_output_root_or_use_invalid_values(self):
+    def test_이름_매핑의_출력_경로_이탈과_잘못된_값을_거부한다(self):
         for value in ('../outside', '/absolute', 'a/b', 'a\\b', '', ' ', '.', '..', '\x00', 5):
             (self.root / '.book-names.json').write_text(json.dumps({'book': value}))
             with self.assertRaises(ValueError):
                 book_output_path(Path('book.epub'), self.root)
 
-    def test_cli_uses_saved_name_for_the_next_chapter_without_network(self):
+    def test_명령행은_네트워크_없이_다음_장에도_저장된_책_이름을_사용한다(self):
         source = self.root / 'author_title_translator.epub'
         source.write_bytes(b'source unchanged')
         output = self.root / 'output'
