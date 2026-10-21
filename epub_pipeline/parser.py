@@ -109,7 +109,6 @@ def read_epub(path: Path, include_prologue: bool = False) -> list[Chapter]:
                 number = sum(c.kind == "chapter" for c in chapters) + 1 if chapter_kind == "chapter" else 0
                 if chapter_kind == "prologue" and any(c.kind == "prologue" for c in chapters):
                     raise ValueError("여러 프롤로그는 현재 지원하지 않습니다. 문서 분할이 필요합니다.")
-                prefix = "prologue" if chapter_kind == "prologue" else f"ch{number:02d}"
                 heading = next((el for el in root.iter() if tag(el) in {"h1", "h2", "h3"}), None)
                 title = element_text(title_node) if title_node is not None else f"Chapter {number}"
                 if len(roots) > 1 and heading is not None:

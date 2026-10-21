@@ -3,15 +3,14 @@ from __future__ import annotations
 
 import json
 import os
-import socket
-import tempfile
 import unittest
-import zipfile
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+from helpers import FakeProvider, OfflineTestCase, epub
 
 from epub_pipeline.cli import build_parser, run
 from epub_pipeline.domain import APIResponse, Chapter, RetryableError, validate_review
@@ -22,52 +21,9 @@ from epub_pipeline.provider import OpenAIProvider, retry_after
 from epub_pipeline.repository import FileRepository, write_json_atomic
 
 
-def epub(path, documents, order=None):
-    container = '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>'
-    items = ''.join(f'<item id="c{i}" href="{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(len(documents)))
-    spine = ''.join(f'<itemref idref="c{i}"/>' for i in (order if order is not None else range(len(documents))))
-    with zipfile.ZipFile(path, 'w') as z:
-        z.writestr('META-INF/container.xml', container)
-        z.writestr('OPS/book.opf', f'<package xmlns="http://www.idpf.org/2007/opf"><manifest>{items}</manifest><spine>{spine}</spine></package>')
-        for i, body in enumerate(documents):
-            z.writestr(f'OPS/{i}.xhtml', f'<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Chapter {i}</title></head><body>{body}</body></html>')
-
-
-class FakeProvider:
-    def __init__(self, failures=None, review_issues=None):
-        self.calls = []
-        self.failures = list(failures or [])
-        self.review_issues = review_issues or []
-
-    def complete(self, **request):
-        self.calls.append(request)
-        if self.failures:
-            failure = self.failures.pop(0)
-            if isinstance(failure, BaseException):
-                raise failure
-            if failure is not None:
-                return failure
-        if request['name'] == 'review_issues':
-            result = {'issues': self.review_issues}
-        else:
-            result = {'translations': [{'id': p['id'], 'text': '번역 ' + p['text']} for p in request['payload']['paragraphs']]}
-        return APIResponse(json.dumps(result, ensure_ascii=False),
-                           {'input_tokens': 100, 'output_tokens': 50, 'cached_input_tokens': 20},
-                           model='mock-snapshot')
-
-
-class OfflineTest(unittest.TestCase):
+class OfflineTest(OfflineTestCase):
     def setUp(self):
-        self.block_network = patch.object(socket, 'create_connection', side_effect=AssertionError('Network is prohibited'))
-        self.block_network.start()
-        for target in ('socket.socket.connect', 'socket.socket.connect_ex', 'socket.getaddrinfo'):
-            blocker = patch(target, side_effect=AssertionError('Network is prohibited'))
-            blocker.start()
-            self.addCleanup(blocker.stop)
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.addCleanup(self.block_network.stop)
-        self.root = Path(self.temp.name)
+        super().setUp()
         self.repo = FileRepository(self.root / 'output')
         self.chapter = Chapter(1, 'Book title', 'OPS/1.xhtml',
                                [{'id': 'p1', 'text': 'ORIGINAL ONE'}, {'id': 'p2', 'text': 'ORIGINAL TWO'}],

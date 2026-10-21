@@ -1,8 +1,6 @@
 """Offline output migration: preserve bytes, checkpoints, locks and app references."""
 import hashlib
 import json
-import tempfile
-import unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,7 +8,7 @@ from epub_pipeline.cli import build_parser, run
 from epub_pipeline.domain import Chapter
 from epub_pipeline.pipeline import Settings, TranslationPipeline
 from epub_pipeline.repository import FileRepository, INTERNAL_FILES, TRANSLATION_FILES
-from test_service_pipeline import FakeProvider
+from helpers import FakeProvider, OfflineTestCase
 
 
 def digest(path):
@@ -37,11 +35,10 @@ def legacy_files(root):
         (root / name).write_text('{}', encoding='utf-8')
 
 
-class LayoutTest(unittest.TestCase):
+class LayoutTest(OfflineTestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name) / 'book' / 'chapter-01'
+        super().setUp()
+        self.root = self.root / 'book' / 'chapter-01'
         self.repo = FileRepository(self.root)
 
     def test_기존_출력을_이동해도_모든_파일_내용과_manifest_상대_경로를_보존한다(self):

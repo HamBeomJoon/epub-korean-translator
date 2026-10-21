@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""CLI entry point; compatibility exports for the original MVP helpers."""
+"""Command-line entry point."""
 import sys
 import zipfile
 from xml.etree import ElementTree as ET
 
-from epub_pipeline.cli import build_parser, load_glossary, run
-from epub_pipeline.compat import api_json, review_batch, translate_batch
-from epub_pipeline.domain import Chapter, make_batches, signature, validate_translations
-from epub_pipeline.parser import read_epub, normalize_text, element_text
-from epub_pipeline.prompts import BASE_PROMPT, STYLE_PROMPTS, STYLE_NAMES, RESULT_SCHEMA, REVIEW_SCHEMA
-from epub_pipeline.repository import write_json_atomic
+from epub_pipeline.cli import build_parser, run
 
 if __name__ == "__main__":
     try:

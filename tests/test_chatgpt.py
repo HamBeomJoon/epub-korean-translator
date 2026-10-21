@@ -6,23 +6,21 @@ import hashlib
 import importlib.util
 import io
 import json
-import socket
-import tempfile
 import time
 import unittest
-from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlsplit
+
+from helpers import OfflineTestCase
 
 from epub_pipeline.chatgpt_auth import (ChatGPTSession, OAuthHTTP, OAuthError, IDTokenVerifier,
                                         ISSUER, RESOURCE, PLAN_SCOPE, consume_callback, browser_authorize)
 from epub_pipeline.chatgpt_provider import ChatGPTProvider
 from epub_pipeline.chatgpt_store import CredentialStore
 from epub_pipeline.cli import build_parser, run
-from epub_pipeline.domain import APIResponse, Chapter, RetryableError
+from epub_pipeline.domain import Chapter, RetryableError
 from epub_pipeline.pipeline import Settings, TranslationPipeline
-from epub_pipeline.pricing import RateCard
 from epub_pipeline.repository import FileRepository
 
 METADATA = {'issuer': ISSUER, 'authorization_endpoint': ISSUER + '/api/accounts/authorize',
@@ -71,15 +69,9 @@ class FakeVerifier:
         return {'sub': self.subject, 'email': 'person@example.test'}
 
 
-class NetworkBlocked(unittest.TestCase):
+class ChatGPTTestCase(OfflineTestCase):
     def setUp(self):
-        for target in ('socket.create_connection', 'socket.socket.connect', 'socket.socket.connect_ex', 'socket.getaddrinfo'):
-            p = patch(target, side_effect=AssertionError('Remote network is prohibited'))
-            p.start()
-            self.addCleanup(p.stop)
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        super().setUp()
         self.store = CredentialStore(self.root / 'auth')
         self.http, self.verifier = FakeHTTP(), FakeVerifier()
         self.authorizations = []
@@ -96,7 +88,7 @@ class NetworkBlocked(unittest.TestCase):
         return self.session.login()
 
 
-class AuthTest(NetworkBlocked):
+class AuthTest(ChatGPTTestCase):
     def test_신규_등록에서_PKCE와_검증된_비공개_저장을_사용한다(self):
         self.login()
         auth = self.authorizations[0]
@@ -302,7 +294,7 @@ class FakeStream:
         pass
 
 
-class ProviderTest(NetworkBlocked):
+class ProviderTest(ChatGPTTestCase):
     def setUp(self):
         super().setUp()
         self.login()
@@ -397,7 +389,7 @@ class ProviderTest(NetworkBlocked):
         self.assertNotEqual(a._key({'model': 'same'}), b._key({'model': 'same'}))
 
 
-class CLITest(NetworkBlocked):
+class CLITest(ChatGPTTestCase):
     def test_연결_상태_확인은_네트워크를_사용하거나_비밀정보를_출력하지_않는다(self):
         self.login()
         args = build_parser().parse_args(['--chatgpt-status', '--chatgpt-auth-dir', str(self.store.directory)])
@@ -422,7 +414,7 @@ class CLITest(NetworkBlocked):
 
 
 @unittest.skipUnless(importlib.util.find_spec('jwt') and importlib.util.find_spec('cryptography'), 'PyJWT[crypto] 설치 필요')
-class CryptographicIdentityTest(NetworkBlocked):
+class CryptographicIdentityTest(ChatGPTTestCase):
     def test_실제_RSA_서명과_발급자와_대상과_만료와_nonce와_변조를_검증한다(self):
         import jwt
         from cryptography.hazmat.primitives.asymmetric import rsa
@@ -447,7 +439,7 @@ class CryptographicIdentityTest(NetworkBlocked):
 
 
 @unittest.skipUnless(importlib.util.find_spec('openai'), 'OpenAI SDK 설치 필요')
-class RealSDKStreamTest(NetworkBlocked):
+class RealSDKStreamTest(ChatGPTTestCase):
     def test_실제_SDK가_네트워크_없이_모의_SSE를_해석한다(self):
         import openai
         import openai._base_client as sdk_transport
