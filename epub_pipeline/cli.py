@@ -19,6 +19,8 @@ from .chatgpt_auth import ChatGPTSession
 from .chatgpt_store import CredentialStore
 from .repository import FileRepository
 from .review_html import render_review_html
+from .progress import TerminalProgress, format_duration
+from .notifications import notify_macos
 
 
 def load_json(path: Path | None) -> dict:
@@ -86,14 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--context-items", type=int, default=2)
     parser.add_argument("--context-chars", type=int, default=1600)
     parser.add_argument("--max-attempts", type=int, default=3)
+    parser.add_argument("--no-progress", action="store_true", help="진행률 표시 끄기 (종료 소요 시간은 유지)")
+    parser.add_argument("--no-notify", action="store_true", help="macOS 완료·실패·중단 알림 끄기")
     return parser
 
 
 def _print_elapsed(label: str, seconds: float) -> None:
-    hours, remainder = divmod(int(seconds), 3600)
-    minutes, seconds_part = divmod(remainder, 60)
-    duration = (f"{hours}시간 " if hours else "") + f"{minutes}분 {seconds_part}초"
-    print(f"{label} 소요 시간: {duration}", flush=True)
+    print(f"{label} 소요 시간: {format_duration(seconds)}", flush=True)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -173,8 +174,9 @@ def run(args: argparse.Namespace) -> None:
     provider = None
     completed = []
     started = time.monotonic()
+    outcome = '실패'
     try:
-        for original in selected:
+        for position, original in enumerate(selected, 1):
             chapter = replace(original, paragraphs=original.paragraphs[:args.sample_paragraphs]) if args.sample_paragraphs else original
             pos = chapters.index(original)
             before = [p for c in chapters[:pos] for p in c.paragraphs][-settings.context_items:] if settings.context_items else []
@@ -196,13 +198,15 @@ def run(args: argparse.Namespace) -> None:
                     approval_option = "--approve-plan" if args.provider == "chatgpt" else "--approve-api"
                     print(f"요청 없음: {output} ({approval_option}으로 명시적 승인)")
                     continue
-                if provider is None and plan["estimated_new_calls_without_retries"]:
-                    provider = (ChatGPTProvider.from_saved_session(args.chatgpt_auth_dir, args.chatgpt_profile)
-                                if args.provider == "chatgpt" else OpenAIProvider.from_environment())
-                pipeline.provider = provider
                 try:
-                    bundle = pipeline.run(chapter, source_version, approved=True, sample=bool(args.sample_paragraphs),
-                                          before=before, after=after)
+                    with TerminalProgress(chapter.index, position, len(selected), started, enabled=not args.no_progress) as progress:
+                        pipeline.on_progress = progress.update
+                        if provider is None and plan["estimated_new_calls_without_retries"]:
+                            provider = (ChatGPTProvider.from_saved_session(args.chatgpt_auth_dir, args.chatgpt_profile)
+                                        if args.provider == "chatgpt" else OpenAIProvider.from_environment())
+                        pipeline.provider = provider
+                        bundle = pipeline.run(chapter, source_version, approved=True, sample=bool(args.sample_paragraphs),
+                                              before=before, after=after)
                 finally:
                     if pipeline.timing is not None:
                         status = {"completed": "완료", "interrupted": "중단", "failed": "실패"}[pipeline.timing["status"]]
@@ -218,6 +222,18 @@ def run(args: argparse.Namespace) -> None:
             with book_repo.lock():
                 book_repo.write(name, {"source_version": source_version, "sample": bool(args.sample_paragraphs),
                                        "chapters": completed})
+        outcome = '완료'
+    except (KeyboardInterrupt, SystemExit):
+        outcome = '중단'
+        raise
     finally:
         if approved and not args.dry_run:
-            _print_elapsed("전체 작업", time.monotonic() - started)
+            elapsed = time.monotonic() - started
+            _print_elapsed("전체 작업", elapsed)
+            if not args.no_notify:
+                message = f'{len(completed)}/{len(selected)}개 장 완료 · 소요 시간: {format_duration(elapsed)}'
+                if outcome == '완료':
+                    message += '\n파일 생성 완료. 검수 결과를 확인하세요.'
+                else:
+                    message += '\n오류를 확인한 뒤 같은 명령으로 재개할 수 있습니다.'
+                notify_macos(f'EPUB 번역 {outcome}', message)

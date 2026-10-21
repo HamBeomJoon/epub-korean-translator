@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from .domain import (Chapter, PARSER_VERSION, VERSION, RetryableError, make_batches,
+from .domain import (Chapter, PARSER_VERSION, VERSION, ProgressEvent, RetryableError, make_batches,
                      signature, validate_result, validate_review)
 from .ports import LLMProvider, Repository
 from .pricing import RateCard, summarize
@@ -48,13 +48,23 @@ class Settings:
 
 class TranslationPipeline:
     def __init__(self, repository: Repository, settings: Settings, provider: LLMProvider | None = None,
-                 rates: RateCard | None = None, sleep: Callable = time.sleep):
+                 rates: RateCard | None = None, sleep: Callable = time.sleep,
+                 on_progress: Callable[[ProgressEvent], None] | None = None):
         self.repo, self.settings, self.provider = repository, settings, provider
         self.rates, self.sleep = rates or RateCard(), sleep
         self.run_id = uuid.uuid4().hex
         self.records = []
         self.cache_hits = 0
         self.timing: dict | None = None
+        self.on_progress = on_progress
+
+    def _progress(self, event: ProgressEvent):
+        if self.on_progress is not None:
+            try:
+                self.on_progress(event)
+            except Exception:
+                logging.warning('진행률 표시 실패: 번역 작업을 계속합니다.')
+                self.on_progress = None
 
     def _context(self, items, start, end, before, after):
         cfg = self.settings
@@ -151,15 +161,17 @@ class TranslationPipeline:
                     "note": "ChatGPT 구독 사용량: API 달러 요금을 적용하지 않음"}
         return self.rates.cost(model, usage)
 
-    def _execute(self, request, validator):
+    def _execute(self, request, validator, emit=lambda *args: None):
         cached = self._cached(request, validator)
         if cached:
             self.cache_hits += 1
+            emit('cached')
             return cached[0]
         if self.provider is None:
             raise RuntimeError("승인된 LLM provider가 없습니다.")
         key = self._key(request)
         for attempt in range(self.settings.max_attempts):
+            emit('request', attempt + 1)
             attempt_id = uuid.uuid4().hex
             record = {"run_id": self.run_id, "attempt_id": attempt_id, "request_key": key,
                       "stage": request["name"], "provider": self.settings.provider, "model": request["model"], "attempt": attempt + 1,
@@ -213,7 +225,9 @@ class TranslationPipeline:
                 raise RuntimeError(f"{request['name']} {self.settings.max_attempts}회 실패: {error}") from error
             if delay is not None and delay > 60:
                 raise RuntimeError(f"서버 Retry-After={delay}초. 이후 같은 명령으로 재개하세요.") from error
-            self.sleep(delay if delay is not None else min(30, 2 ** attempt) + random.uniform(0, 0.5))
+            delay = delay if delay is not None else min(30, 2 ** attempt) + random.uniform(0, 0.5)
+            emit('retry_wait', attempt + 1, delay)
+            self.sleep(delay)
         raise AssertionError("unreachable")
 
     def run(self, chapter: Chapter, source_version: str, *, approved: bool = False,
@@ -225,13 +239,29 @@ class TranslationPipeline:
         status = "failed"
         translations = {style: {} for style in self.settings.styles}
         issues = {style: [] for style in self.settings.styles}
+        completed, previous_hits = 0, self.cache_hits
+        batch_number = 0
+        def emit(phase, attempt=0, wait_seconds=None):
+            self._progress(ProgressEvent(chapter.index, style, stage, phase, batch_number, batches,
+                                         completed, total, self.cache_hits - previous_hits, attempt, wait_seconds))
         try:
-            for style, batch, request in self._translation_requests(chapter, source_version, before or [], after or []):
-                translated = self._execute(request, lambda r: validate_result(batch, r))
+            batches = len(make_batches(chapter.items, self.settings.max_chars, self.settings.max_items))
+            total = batches * len(self.settings.styles) * (2 if self.settings.review else 1)
+            for index, (style, batch, request) in enumerate(self._translation_requests(chapter, source_version, before or [], after or [])):
+                batch_number = index // len(self.settings.styles) + 1
+                stage = 'translation'
+                translated = self._execute(request, lambda r: validate_result(batch, r), emit)
                 translations[style].update(translated)
+                completed += 1
+                emit('completed')
                 if self.settings.review:
+                    stage = 'review'
                     review_req = self._review_request(request, batch, translated, style)
-                    issues[style].extend(self._execute(review_req, lambda r: validate_review(batch, r)))
+                    issues[style].extend(self._execute(review_req, lambda r: validate_review(batch, r), emit))
+                    completed += 1
+                    emit('completed')
+            style, stage = None, 'saving'
+            emit('saving')
             bundle = self._export(chapter, source_version, translations, issues, sample)
             status = "completed"
             return bundle

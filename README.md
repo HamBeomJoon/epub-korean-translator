@@ -44,6 +44,8 @@ python translate_epub.py --input "/path/to/book.epub" \
 
 다음 장은 `--chapter 2`, 일부 문단만 시험하려면 `--sample-paragraphs 3`을 사용하세요. 같은 명령을 다시 실행하면 검증된 캐시를 재사용하며, 종료 시 챕터별·전체 소요 시간을 표시합니다.
 
+실행 중 현재 챕터·문체·완료 배치 작업 수·경과 시간을 표시하고 macOS에서는 전체 작업의 완료·실패·중단을 알립니다. `--no-progress`, `--no-notify`로 각각 끌 수 있습니다. 추가 AI 호출은 없습니다. [진행률·알림 안내](docs/usage.md#진행률과-macos-알림)를 참고하세요.
+
 API 키 방식은 ChatGPT 구독과 별도 과금이며 `--provider openai --approve-api`로 실행합니다. [상세 사용법](docs/usage.md)을 참고하세요. 승인 없는 실행과 `--dry-run`은 번역 요청을 보내지 않습니다.
 
 ## 결과 확인

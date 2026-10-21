@@ -10,6 +10,21 @@ VERSION = "2.0"
 PARSER_VERSION = "3"
 
 
+@dataclass(frozen=True)
+class ProgressEvent:
+    chapter: int
+    style: str | None
+    stage: str
+    phase: str
+    batch: int
+    batches: int
+    completed: int
+    total: int
+    cache_hits: int
+    attempt: int = 0
+    wait_seconds: float | None = None
+
+
 @dataclass
 class Chapter:
     index: int

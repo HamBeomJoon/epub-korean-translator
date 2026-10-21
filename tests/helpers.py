@@ -19,6 +19,9 @@ class OfflineTestCase(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        notifier = patch('epub_pipeline.cli.notify_macos', return_value=False)
+        self.notification = notifier.start()
+        self.addCleanup(notifier.stop)
 
 
 def epub(path, documents, order=None):

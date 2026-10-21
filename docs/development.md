@@ -13,6 +13,8 @@ python3 -m compileall -q epub_pipeline translate_epub.py tests scripts
 
 테스트 함수명은 `test_승인이_없으면_공급자를_호출하지_않는다`처럼 `test_` 뒤에 한글로 동작을 설명합니다. API·EPUB·JSON 등 기술 용어는 유지합니다. 공통 합성 EPUB·모의 공급자·네트워크 차단은 `tests/helpers.py`에 모았고 테스트 파일끼리 서로 import하지 않습니다. 실제 계정·API 키 없이 검증하며 SDK/JWT 의존성이 없으면 해당 검증을 skip합니다.
 
+진행률 테스트는 배치·검수·재시도·캐시 계수와 대화형 갱신 스레드 정리를 확인합니다. CLI 테스트의 실제 macOS 알림은 공통 fixture에서 차단하고 알림 어댑터는 subprocess 모의 응답으로 검증합니다. 테스트 실행으로 데스크톱 알림을 보내지 않습니다.
+
 실제 데미안 8개 장·1장 91문단 회귀 테스트는 사용자가 해당 판본을 별도로 준비했을 때만 실행합니다. 미지정 시 이 테스트 1개만 skip되며 EPUB은 저장소에 포함하지 않습니다.
 
 ```bash
@@ -48,6 +50,7 @@ python3 scripts/check_secrets.py --all
 | `pipeline.py`, `ports.py` | 번역·검수·재개·발행 흐름과 어댑터 인터페이스 |
 | `parser.py` | EPUB spine·XHTML·원문 AST·안정적인 ID 추출 |
 | `review_html.py` | 정렬된 원문·번역·검수 JSON의 오프라인 HTML 표현 |
+| `progress.py`, `notifications.py` | 터미널 진행률 표시와 macOS 로컬 알림 |
 | `provider.py`, `chatgpt_provider.py` | API 키/OAuth 추론 어댑터 |
 | `chatgpt_auth.py`, `chatgpt_store.py` | 로그인·계정·인증 정보의 비공개 저장 |
 | `repository.py`, `pricing.py` | 출력·캐시·사용량 저장과 외부 요금 계산 |
