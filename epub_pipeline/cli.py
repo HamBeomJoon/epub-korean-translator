@@ -18,6 +18,7 @@ from .chatgpt_provider import ChatGPTProvider
 from .chatgpt_auth import ChatGPTSession
 from .chatgpt_store import CredentialStore
 from .repository import FileRepository
+from .review_html import render_review_html
 
 
 def load_json(path: Path | None) -> dict:
@@ -59,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     actions.add_argument("--chatgpt-status", action="store_true", help="네트워크 없이 로그인 상태 확인")
     actions.add_argument("--chatgpt-logout", action="store_true", help="선택 profile 로그아웃·세션 해제")
     actions.add_argument("--organize-output", type=Path, help="기존 장 출력 폴더를 번역본/과 _관리/로 정리 (오프라인)")
+    actions.add_argument("--review-html", type=Path, help="기존 장 출력 폴더에서 HTML 검수 보고서 생성 (오프라인)")
     actions.add_argument("--list-models", action="store_true", help="선택 ChatGPT 계정의 모델 slug 조회 (번역 없음)")
     parser.add_argument("--chatgpt-profile", default="default", help="저장 계정 이름; 새 이름으로 다른 계정 등록")
     parser.add_argument("--chatgpt-auth-dir", type=Path, help="기본 ~/.epub_translation_tool/chatgpt, 자격 증명 전용")
@@ -95,6 +97,17 @@ def _print_elapsed(label: str, seconds: float) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
+    if args.review_html is not None:
+        if args.input or args.dry_run or args.approve_api or args.approve_plan or args.chatgpt_enable_plan:
+            raise ValueError("--review-html은 번역/로그인 인자와 분리해 실행하세요.")
+        if not args.review_html.is_dir():
+            raise ValueError("HTML 보고서를 생성할 기존 장 출력 폴더를 지정하세요.")
+        repo = FileRepository(args.review_html)
+        with repo.lock(organize=False):
+            aligned, report = repo.read_review_data()
+            repo.write_text("review_report.html", render_review_html(aligned, report))
+        print(f"HTML 검수 보고서: {repo.artifact_path('review_report.html')}")
+        return
     if args.organize_output is not None:
         if args.input or args.dry_run or args.approve_api or args.approve_plan or args.chatgpt_enable_plan:
             raise ValueError("--organize-output은 번역/로그인 인자와 분리해 실행하세요.")

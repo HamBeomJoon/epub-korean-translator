@@ -14,7 +14,7 @@ READABLE_DIRECTORY = "번역본"
 INTERNAL_DIRECTORY = "_관리"
 TRANSLATION_FILES = {"faithful.md", "modern.md", "easy.md"}
 INTERNAL_FILES = {"plan.json", "source.preview.json", "source.json", "aligned.json",
-                  "review_report.json", "usage.json", "manifest.json", ".cache", ".usage", "generations"}
+                  "review_report.json", "review_report.html", "usage.json", "manifest.json", ".cache", ".usage", "generations"}
 
 
 def write_text_atomic(path: Path, content: str) -> None:
@@ -150,6 +150,29 @@ class FileRepository:
 
     def write(self, name: str, value: Any) -> None:
         write_json_atomic(self.artifact_path(name), value)
+
+    def read_review_data(self) -> tuple[dict, dict]:
+        """Prefer the published snapshot; never mix it with possibly stale convenience copies."""
+        if self.internal.is_symlink():
+            raise ValueError('보고서 관리 폴더에 심볼릭 링크를 사용할 수 없습니다.')
+        base = self.internal if any((self.internal / name).exists() for name in ('manifest.json', 'aligned.json')) else self.output
+        def read(name):
+            if not isinstance(name, str) or not name:
+                raise ValueError('보고서 입력 파일의 상대 경로가 필요합니다.')
+            relative = Path(name)
+            path = base / relative
+            if relative.is_absolute() or '..' in relative.parts or not path.resolve().is_relative_to(base.resolve()):
+                raise ValueError('보고서 입력은 장 출력 폴더 안의 파일이어야 합니다.')
+            value = json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(value, dict):
+                raise ValueError(f'보고서 JSON 객체가 필요합니다: {path}')
+            return value
+        manifest = read('manifest.json') if (base / 'manifest.json').exists() else None
+        aligned = read(manifest['aligned'] if manifest is not None else 'aligned.json')
+        report = read(manifest['review'] if manifest is not None else 'review_report.json')
+        if manifest is not None and aligned.get('revision') != manifest.get('revision'):
+            raise ValueError('발행 manifest와 원문·번역 revision이 다릅니다.')
+        return aligned, report
 
     def write_text(self, name: str, value: str) -> None:
         write_text_atomic(self.artifact_path(name), value)

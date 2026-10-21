@@ -33,6 +33,7 @@ def legacy_files(root):
     (root / '.usage/attempt.json').write_text('{"status": "accepted"}', encoding='utf-8')
     for name in ('plan.json', 'source.json', 'source.preview.json', 'review_report.json', 'aligned.json', 'usage.json'):
         (root / name).write_text('{}', encoding='utf-8')
+    (root / 'review_report.html').write_text('<!doctype html><title>기존 보고서</title>', encoding='utf-8')
 
 
 class LayoutTest(OfflineTestCase):

@@ -94,6 +94,7 @@ output/<epub-name>/
       source.json
       aligned.json
       review_report.json
+      review_report.html        # 브라우저에서 원문·세 번역·AI 지적 비교
       usage.json
       manifest.json
       generations/<revision>/  # 완성된 결과 스냅샷
@@ -103,7 +104,7 @@ output/<epub-name>/
 
 기본 책 폴더명은 입력 파일의 확장자를 뺀 값입니다. `--output`으로 출력 루트를 바꿀 수 있습니다. 이름 매핑이 필요한 경우 해당 출력 루트의 `.book-names.json`에 원본 stem → 폴더명을 저장합니다. 예: `{"hermann-hesse_demian_n-h-priday": "hermann-hesse_demian"}`. 로컬 매핑은 입력 판본·캐시 키에 영향을 주지 않습니다.
 
-앱은 `_관리/manifest.json`을 읽고 **그 파일이 있는 폴더 기준**으로 `aligned`, `review`, `markdown`의 상대 경로를 해석합니다. 스냅샷을 모두 저장한 뒤 manifest를 원자적으로 교체합니다. `번역본/`과 `_관리/` 바로 아래 결과는 편의용 사본이며 여러 파일이 동시에 교체되지는 않습니다. 캐시·사용량 원장·스냅샷은 재개와 앱 연동에 필요하므로 단순 중복 파일로 삭제하지 마세요.
+앱은 `_관리/manifest.json`을 읽고 **그 파일이 있는 폴더 기준**으로 `aligned`, `review`, `markdown`의 상대 경로를 해석합니다. 새 출력의 `review_html`도 같은 기준의 HTML 스냅샷 경로입니다. 스냅샷을 모두 저장한 뒤 manifest를 원자적으로 교체합니다. `번역본/`과 `_관리/` 바로 아래 결과는 편의용 사본이며 여러 파일이 동시에 교체되지는 않습니다. 캐시·사용량 원장·스냅샷은 재개와 앱 연동에 필요하므로 단순 중복 파일로 삭제하지 마세요.
 
 `aligned.json`에는 원문 버전·출력 revision·모델·제목·문단이 있습니다. 문단은 `chapter_id`, `paragraph_id`, `source_text`, `translations.{faithful,modern,easy}`, `review_status`, 원문 위치를 포함하며 미생성 스타일은 `null`입니다. 기존 `id`, `source`, 최상위 `chapter`도 유지합니다.
 
@@ -126,6 +127,22 @@ output/<epub-name>/
 `ai_review_executed`는 검수 결과 반영 여부이며 캐시 재사용도 포함합니다. `ai_review_passed`는 미검수 시 `null`, 지적이 없으면 `true`, 있으면 `false`입니다. `human_review_required`는 항상 `true`이며 사람의 최종 승인과 구분합니다. 문단별 상태는 `not_generated`, `not_reviewed`, `passed`, `flagged`입니다.
 
 **수정 제안은 자동 반영되지 않습니다.** 지적이 있어도 결과는 저장되며 AI가 모든 누락·왜곡을 검출한다고 보장하지 않습니다. 실제 출판 전에는 원문 대조와 사용 판본의 권리 확인이 필요합니다.
+
+### 브라우저에서 읽는 HTML 보고서
+
+새 번역 결과에는 `_관리/review_report.html`도 자동 저장됩니다. 제목(문단 0)·챕터 번호·본문 문단 번호·문단 ID와 원문·세 번역·해당 문체의 지적 사항을 나란히 표시합니다. 문체 선택, 지적 있는 문단만 보기, 검색, 인쇄를 지원합니다. 미생성·미검수 상태와 AI 지적 없음을 구분하며 HTML에서도 번역문을 자동 수정하거나 사람의 승인을 기록하지 않습니다.
+
+이미 번역한 장은 EPUB·모델·승인 옵션 없이 다음 명령으로 생성하세요.
+
+```bash
+python translate_epub.py --review-html "output/book/chapter-01"
+# macOS에서 브라우저로 열기
+open "output/book/chapter-01/_관리/review_report.html"
+```
+
+이 명령은 `manifest.json`이 가리키는 원문·번역·검수 JSON 스냅샷을 읽습니다. manifest가 없는 구형 출력은 같은 폴더의 `aligned.json`과 `review_report.json`을 사용합니다. 최신 구조와 구형 장 폴더 모두 입력할 수 있으며 HTML만 생성합니다. 기존 JSON·Markdown·manifest·캐시·사용량은 변경하지 않습니다. AI 요청·로그인·토큰 사용은 없습니다.
+
+HTML 한 파일에 서식과 필터 기능을 포함하므로 인터넷 없이 브라우저에서 열 수 있습니다. 외부 리소스는 불러오지 않고 책과 지적 내용은 HTML 텍스트로 이스케이프합니다. 원문과 번역문이 들어 있는 개인 출력물이므로 Git이나 공개 사이트에 올리지 마세요. 브라우저의 JavaScript를 끄면 전체 보고서만 표시되며 검색·필터는 사용할 수 없습니다.
 
 ## 소요 시간·재개·사용량
 
@@ -190,6 +207,7 @@ python3 scripts/check_secrets.py --all
 | `domain.py`, `prompts.py` | 데이터·검증과 번역/검수 프롬프트·스키마 |
 | `pipeline.py`, `ports.py` | 번역·검수·재개·발행 흐름과 어댑터 인터페이스 |
 | `parser.py` | EPUB spine·XHTML·원문 AST·안정적인 ID 추출 |
+| `review_html.py` | 정렬된 원문·번역·검수 JSON의 오프라인 HTML 표현 |
 | `provider.py`, `chatgpt_provider.py` | API 키/OAuth 추론 어댑터 |
 | `chatgpt_auth.py`, `chatgpt_store.py` | 로그인·계정·인증 정보의 비공개 저장 |
 | `repository.py`, `pricing.py` | 출력·캐시·사용량 저장과 외부 요금 계산 |

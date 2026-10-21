@@ -15,6 +15,7 @@ from .domain import (Chapter, PARSER_VERSION, VERSION, RetryableError, make_batc
 from .ports import LLMProvider, Repository
 from .pricing import RateCard, summarize
 from .prompts import BASE_PROMPT, STYLE_PROMPTS, STYLE_NAMES, RESULT_SCHEMA, REVIEW_SCHEMA, REVIEW_PROMPT
+from .review_html import render_review_html
 
 
 @dataclass
@@ -285,6 +286,7 @@ class TranslationPipeline:
                   "source_warnings": chapter.warnings, "human_review_required": True}
         revision = signature({"bundle": bundle, "report": report})
         bundle["revision"] = revision
+        review_html = render_review_html(bundle, report)
         files = {"aligned.json": bundle, "review_report.json": report,
                  "source.json": {"chapter_id": chapter.chapter_id, "version": source_version,
                                  "title": chapter.title, "source_file": chapter.source_file,
@@ -305,12 +307,15 @@ class TranslationPipeline:
             self.repo.write(f"generations/{revision}/{name}", value)
         for name, value in markdown.items():
             self.repo.write_text(f"generations/{revision}/{name}", value)
+        self.repo.write_text(f"generations/{revision}/review_report.html", review_html)
         for name, value in files.items():
             self.repo.write(name, value)
         for name, value in markdown.items():
             self.repo.write_text(name, value)
+        self.repo.write_text("review_report.html", review_html)
         self.repo.write("manifest.json", {"schema_version": VERSION, "revision": revision,
                                          "aligned": f"generations/{revision}/aligned.json",
                                          "review": f"generations/{revision}/review_report.json",
+                                         "review_html": f"generations/{revision}/review_report.html",
                                          "markdown": {s: f"generations/{revision}/{s}.md" for s in translations}})
         return bundle
