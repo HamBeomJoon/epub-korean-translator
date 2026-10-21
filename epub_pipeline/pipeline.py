@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 import logging
 import random
+import threading
 import time
 import uuid
+from concurrent.futures import CancelledError, FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -32,10 +34,13 @@ class Settings:
     max_attempts: int = 3
     glossary: dict[str, str] = field(default_factory=dict)
     consistency: dict[str, Any] = field(default_factory=dict)
+    workers: int = 2
 
     def __post_init__(self):
         if self.provider not in {"openai", "chatgpt"}:
             raise ValueError("지원하지 않는 provider입니다.")
+        if type(self.workers) is not int or self.workers not in (1, 2):
+            raise ValueError("workers는 1 또는 2여야 합니다.")
         if not self.styles or len(set(self.styles)) != len(self.styles) or any(s not in STYLE_PROMPTS for s in self.styles):
             raise ValueError("중복 없이 유효한 번역 스타일을 지정하세요.")
         if min(self.max_chars, self.max_items, self.max_attempts) <= 0 or min(self.context_items, self.context_chars) < 0:
@@ -57,6 +62,9 @@ class TranslationPipeline:
         self.cache_hits = 0
         self.timing: dict | None = None
         self.on_progress = on_progress
+        self._state_lock = threading.RLock()
+        self._stop = threading.Event()
+        self._failure: BaseException | None = None
 
     def _progress(self, event: ProgressEvent):
         if self.on_progress is not None:
@@ -144,7 +152,8 @@ class TranslationPipeline:
                 else:
                     calls += 1
                     review_unknown += 1
-        return {"provider": self.settings.provider, "chapter_id": chapter.chapter_id, "paragraphs": len(chapter.paragraphs),
+        return {"provider": self.settings.provider, "workers": self.settings.workers,
+                "chapter_id": chapter.chapter_id, "paragraphs": len(chapter.paragraphs),
                 "source_characters": sum(len(p["text"]) for p in chapter.items),
                 "translation_batches": len(requests), "known_cache_hits": cache_hits,
                 "estimated_new_calls_without_retries": calls,
@@ -162,22 +171,28 @@ class TranslationPipeline:
         return self.rates.cost(model, usage)
 
     def _execute(self, request, validator, emit=lambda *args: None):
+        if self._stop.is_set():
+            raise CancelledError()
         cached = self._cached(request, validator)
         if cached:
-            self.cache_hits += 1
+            with self._state_lock:
+                self.cache_hits += 1
             emit('cached')
             return cached[0]
         if self.provider is None:
             raise RuntimeError("승인된 LLM provider가 없습니다.")
         key = self._key(request)
         for attempt in range(self.settings.max_attempts):
+            if self._stop.is_set():
+                raise CancelledError()
             emit('request', attempt + 1)
             attempt_id = uuid.uuid4().hex
             record = {"run_id": self.run_id, "attempt_id": attempt_id, "request_key": key,
                       "stage": request["name"], "provider": self.settings.provider, "model": request["model"], "attempt": attempt + 1,
                       "started_at": datetime.now(timezone.utc).isoformat(), "status": "started",
                       "usage": None, "cost": self._cost(request["model"], None)}
-            self.records.append(record)
+            with self._state_lock:
+                self.records.append(record)
             self.repo.record_attempt(attempt_id, record)
             delay = None
             try:
@@ -227,8 +242,52 @@ class TranslationPipeline:
                 raise RuntimeError(f"서버 Retry-After={delay}초. 이후 같은 명령으로 재개하세요.") from error
             delay = delay if delay is not None else min(30, 2 ** attempt) + random.uniform(0, 0.5)
             emit('retry_wait', attempt + 1, delay)
-            self.sleep(delay)
+            if self.sleep is time.sleep:
+                if self._stop.wait(delay):
+                    raise CancelledError()
+            else:
+                self.sleep(delay)
         raise AssertionError("unreachable")
+
+    def _run_batches(self, requests, execute):
+        """Keep only workers tasks in flight and drain them before publishing usage."""
+        if self.settings.workers == 1 or len(requests) <= 1:
+            return [execute(index, item) for index, item in enumerate(requests)]
+        results = {}
+        remaining = iter(enumerate(requests))
+        executor = ThreadPoolExecutor(max_workers=self.settings.workers, thread_name_prefix='epub-batch')
+        pending = {}
+        try:
+            for _ in range(min(self.settings.workers, len(requests))):
+                index, item = next(remaining)
+                pending[executor.submit(execute, index, item)] = index
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                # Inspect every finished result before scheduling any replacements.
+                for future in done:
+                    results[pending.pop(future)] = future.result()
+                if self._stop.is_set():
+                    # A failing worker may have set the flag just after wait returned.
+                    continue
+                for _ in done:
+                    next_item = next(remaining, None)
+                    if next_item is None:
+                        break
+                    index, item = next_item
+                    pending[executor.submit(execute, index, item)] = index
+        except BaseException as exc:
+            self._stop.set()
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                logging.warning('중단 요청: 이미 전송된 요청의 사용량과 캐시를 정리한 뒤 종료합니다.')
+            for future in pending:
+                future.cancel()
+            if isinstance(exc, CancelledError) and self._failure is not None:
+                raise self._failure
+            raise
+        finally:
+            # In-flight calls still write their received usage and valid cache entries.
+            executor.shutdown(wait=True, cancel_futures=True)
+        return [results[index] for index in range(len(requests))]
 
     def run(self, chapter: Chapter, source_version: str, *, approved: bool = False,
             sample: bool = False, before=None, after=None) -> dict:
@@ -240,28 +299,46 @@ class TranslationPipeline:
         translations = {style: {} for style in self.settings.styles}
         issues = {style: [] for style in self.settings.styles}
         completed, previous_hits = 0, self.cache_hits
-        batch_number = 0
-        def emit(phase, attempt=0, wait_seconds=None):
-            self._progress(ProgressEvent(chapter.index, style, stage, phase, batch_number, batches,
-                                         completed, total, self.cache_hits - previous_hits, attempt, wait_seconds))
+        self._stop.clear()
+        self._failure = None
         try:
             batches = len(make_batches(chapter.items, self.settings.max_chars, self.settings.max_items))
             total = batches * len(self.settings.styles) * (2 if self.settings.review else 1)
-            for index, (style, batch, request) in enumerate(self._translation_requests(chapter, source_version, before or [], after or [])):
+            requests = list(self._translation_requests(chapter, source_version, before or [], after or []))
+            def execute(index, item):
+                style, batch, request = item
                 batch_number = index // len(self.settings.styles) + 1
                 stage = 'translation'
-                translated = self._execute(request, lambda r: validate_result(batch, r), emit)
-                translations[style].update(translated)
-                completed += 1
-                emit('completed')
-                if self.settings.review:
-                    stage = 'review'
-                    review_req = self._review_request(request, batch, translated, style)
-                    issues[style].extend(self._execute(review_req, lambda r: validate_review(batch, r), emit))
-                    completed += 1
+                def emit(phase, attempt=0, wait_seconds=None):
+                    nonlocal completed
+                    with self._state_lock:
+                        if phase == 'completed':
+                            completed += 1
+                        self._progress(ProgressEvent(chapter.index, style, stage, phase, batch_number, batches,
+                                                     completed, total, self.cache_hits - previous_hits, attempt, wait_seconds))
+                try:
+                    translated = self._execute(request, lambda r: validate_result(batch, r), emit)
                     emit('completed')
-            style, stage = None, 'saving'
-            emit('saving')
+                    reviewed = []
+                    if self.settings.review:
+                        stage = 'review'
+                        review_req = self._review_request(request, batch, translated, style)
+                        reviewed = self._execute(review_req, lambda r: validate_review(batch, r), emit)
+                        emit('completed')
+                    return translated, reviewed
+                except BaseException as exc:
+                    with self._state_lock:
+                        if self._failure is None and not isinstance(exc, CancelledError):
+                            self._failure = exc
+                        self._stop.set()
+                    raise
+            results = self._run_batches(requests, execute)
+            # Restore source/style order regardless of the workers' completion order.
+            for (style, _, _), (translated, reviewed) in zip(requests, results):
+                translations[style].update(translated)
+                issues[style].extend(reviewed)
+            self._progress(ProgressEvent(chapter.index, None, 'saving', 'saving', batches, batches,
+                                         completed, total, self.cache_hits - previous_hits))
             bundle = self._export(chapter, source_version, translations, issues, sample)
             status = "completed"
             return bundle

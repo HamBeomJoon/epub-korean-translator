@@ -32,6 +32,7 @@ class OfflineTest(OfflineTestCase):
                                       'cached_input_per_million': '0.5', 'output_per_million': '8'}})
 
     def pipeline(self, provider=None, **kwargs):
+        kwargs.setdefault('workers', 1)
         return TranslationPipeline(self.repo, Settings(model='mock', **kwargs), provider or FakeProvider(),
                                    rates=self.rates, sleep=lambda _: None)
 

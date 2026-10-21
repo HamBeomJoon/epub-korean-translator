@@ -24,6 +24,7 @@ class TerminalProgress:
         except (OSError, ValueError):
             self.enabled, self.live = False, False
         self.event: ProgressEvent | None = None
+        self._active: dict[tuple, ProgressEvent] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
@@ -34,7 +35,8 @@ class TerminalProgress:
             return
         chapter = '프롤로그' if self.chapter == 0 else f'{self.chapter}장'
         parts = [f'[선택 {self.position}/{self.chapters} · {chapter}]']
-        event = self.event
+        latest = self.event
+        event = next(iter(self._active.values()), latest)
         if event is None:
             parts.append('작업 준비')
         else:
@@ -43,7 +45,9 @@ class TerminalProgress:
             parts.append({'translation': '번역', 'review': 'AI 검수', 'saving': '결과 저장'}[event.stage])
             if event.stage != 'saving':
                 parts.append(f'현재 배치 {event.batch}/{event.batches}')
-            parts.append(f'완료 작업 {event.completed}/{event.total} · 캐시 {event.cache_hits}')
+            parts.append(f'완료 작업 {latest.completed}/{latest.total} · 캐시 {latest.cache_hits}')
+            if self._active:
+                parts.append(f'진행 중 {len(self._active)}작업')
             if event.phase == 'retry_wait':
                 parts.append(f'재시도 대기 {event.wait_seconds:g}초 (시도 {event.attempt})')
             elif event.phase == 'request':
@@ -62,6 +66,13 @@ class TerminalProgress:
     def update(self, event: ProgressEvent):
         with self._lock:
             self.event = event
+            key = (event.style, event.stage, event.batch)
+            if event.phase in {'request', 'retry_wait', 'cached'}:
+                self._active[key] = event
+            elif event.phase == 'completed':
+                self._active.pop(key, None)
+            elif event.stage == 'saving':
+                self._active.clear()
             self._render()
 
     def _refresh(self):

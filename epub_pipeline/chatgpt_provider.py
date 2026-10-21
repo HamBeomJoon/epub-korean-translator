@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from .chatgpt_auth import ChatGPTSession, RESOURCE, USAGE_URL, safe_code
 from .domain import APIResponse, RetryableError, RequestError
 from .provider import retry_after
@@ -42,6 +43,7 @@ class ChatGPTProvider:
         self.session = session
         self.client_factory = client_factory
         self._model_slugs = None
+        self._session_lock = threading.Lock()
 
     @classmethod
     def from_saved_session(cls, directory=None, profile="default"):
@@ -49,10 +51,12 @@ class ChatGPTProvider:
         return cls(ChatGPTSession(CredentialStore(directory), profile))
 
     def complete(self, model, instructions, payload, schema, name) -> APIResponse:
-        if self._model_slugs is None:
-            self._model_slugs = {p["slug"] for p in self.session.models()}
-        if model not in self._model_slugs:
-            raise RuntimeError("선택한 모델이 현재 ChatGPT 계정 목록에 없습니다. --list-models로 slug를 확인하세요.")
+        with self._session_lock:
+            if self._model_slugs is None:
+                self._model_slugs = {p["slug"] for p in self.session.models()}
+            if model not in self._model_slugs:
+                raise RuntimeError("선택한 모델이 현재 ChatGPT 계정 목록에 없습니다. --list-models로 slug를 확인하세요.")
+            token = self.session.access_token()
         factory = self.client_factory
         if factory is None:
             try:
@@ -61,7 +65,7 @@ class ChatGPTProvider:
                 raise RuntimeError("pip install -r requirements.txt 를 실행하세요.") from None
             factory = OpenAI
         # Explicit bearer + base URL prevents environment API keys/endpoints becoming a billing fallback.
-        client = factory(api_key=self.session.access_token(), base_url=RESOURCE, organization="", project="", max_retries=0, timeout=180)
+        client = factory(api_key=token, base_url=RESOURCE, organization="", project="", max_retries=0, timeout=180)
         terminal = None
         chunks = []
         try:

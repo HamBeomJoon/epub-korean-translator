@@ -88,6 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--context-items", type=int, default=2)
     parser.add_argument("--context-chars", type=int, default=1600)
     parser.add_argument("--max-attempts", type=int, default=3)
+    parser.add_argument("--workers", type=int, choices=(1, 2), default=2,
+                        help="독립 배치 작업 동시 실행 수 (기본 2, 1은 순차 실행)")
     parser.add_argument("--no-progress", action="store_true", help="진행률 표시 끄기 (종료 소요 시간은 유지)")
     parser.add_argument("--no-notify", action="store_true", help="macOS 완료·실패·중단 알림 끄기")
     return parser
@@ -159,7 +161,7 @@ def run(args: argparse.Namespace) -> None:
     settings = Settings(model=model, provider=args.provider, review_model=args.review_model, styles=tuple(args.styles),
                         review=args.review, max_chars=args.max_chars, max_items=args.max_items,
                         context_items=args.context_items, context_chars=args.context_chars,
-                        max_attempts=args.max_attempts, glossary=load_glossary(args.glossary),
+                        max_attempts=args.max_attempts, workers=args.workers, glossary=load_glossary(args.glossary),
                         consistency=load_json(args.consistency))
     rates = RateCard(load_json(args.pricing))
     selected = chapters if args.all_chapters else [c for c in chapters if c.index == args.chapter]

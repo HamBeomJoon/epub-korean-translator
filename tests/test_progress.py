@@ -23,7 +23,7 @@ class ProgressTest(OfflineTestCase):
     def test_완료_작업과_현재_스타일과_배치와_검수를_구분한다(self):
         events = []
         fake = FakeProvider()
-        settings = Settings(model='mock', review=True, max_items=1)
+        settings = Settings(model='mock', review=True, max_items=1, workers=1)
         pipeline = TranslationPipeline(self.repo, settings, fake, on_progress=events.append)
         pipeline.run(self.chapter, 'v1', approved=True)
         completed = [e for e in events if e.phase == 'completed']
@@ -113,6 +113,18 @@ class ProgressTest(OfflineTestCase):
             self.assertTrue(stream.refreshed.wait(3))
         self.assertFalse(progress._thread.is_alive())
         self.assertTrue(stream.getvalue().endswith('\n'))
+
+    def test_먼저_끝난_작업_대신_실제로_진행_중인_문체를_표시한다(self):
+        stream = io.StringIO()
+        with TerminalProgress(1, 1, 1, 0, stream=stream) as progress:
+            progress.update(ProgressEvent(1, 'faithful', 'translation', 'request', 1, 1, 0, 6, 0, 1))
+            progress.update(ProgressEvent(1, 'modern', 'translation', 'request', 1, 1, 0, 6, 0, 1))
+            self.assertIn('진행 중 2작업', stream.getvalue().splitlines()[-1])
+            progress.update(ProgressEvent(1, 'faithful', 'translation', 'completed', 1, 1, 1, 6, 0))
+            line = stream.getvalue().splitlines()[-1]
+            self.assertIn('자연스러운 현대어', line)
+            self.assertIn('진행 중 1작업', line)
+            self.assertIn('완료 작업 1/6', line)
 
 
 class NotificationTest(OfflineTestCase):
