@@ -1,0 +1,9 @@
+{
+  "YOUR_MODEL_ID": {
+    "currency": "USD",
+    "input_per_million": "0",
+    "cached_input_per_million": "0",
+    "output_per_million": "0",
+    "as_of": "REPLACE_WITH_RATE_DATE"
+  }
+}

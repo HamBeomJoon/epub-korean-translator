@@ -1,0 +1,16 @@
+.env
+.venv/
+output/
+test-output/
+# EPUB inputs are supplied by each user and are not distributed.
+*.[eE][pP][uU][bB]
+__pycache__/
+*.pyc
+
+# Optional project-local OAuth directory (default storage is outside this project).
+.chatgpt-auth/
+
+# Local environment variants and macOS metadata.
+.env.*
+!.env.example
+.DS_Store
