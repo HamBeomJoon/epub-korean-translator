@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree as ET
 
 from .domain import Chapter, signature
+from .text_layout import lineated
 
 XHTML = "{http://www.w3.org/1999/xhtml}"
 OPF = "{http://www.idpf.org/2007/opf}"
@@ -256,7 +257,7 @@ def read_epub(path: Path, include_prologue: bool = False) -> list[Chapter]:
                     selected = {id(el) for node, _ in roots for el in node.iter()}
                     if any(id(el) not in selected and normalize_text(el.text or "") for el in body.iter()):
                         warn("선택한 chapter/prologue 밖에 텍스트가 있음: EPUB 원본 확인 필요")
-                def add(text, node, ancestors, suffix=""):
+                def add(text, node, ancestors, suffix="", preserve=False):
                     if not text.strip():
                         return
                     locator = node.get("id") or paths[id(node)]
@@ -270,11 +271,15 @@ def read_epub(path: Path, include_prologue: bool = False) -> list[Chapter]:
                     paragraphs.append({"id": paragraph_id, "text": text, "kind": block_kind,
                                        "source_locator": paths[id(node)] + suffix,
                                        "source_element_id": node.get("id"),
-                                       "ancestors": [name for name, _ in ancestors]})
+                                       "ancestors": [name for name, _ in ancestors],
+                                       "preformatted": "pre" in kinds,
+                                       "preserve_line_breaks": preserve or block_kind == "heading"
+                                       or any(tag(child) == "br" for child in node.iter())})
                     if implicit:
                         paragraphs[-1]["source_file"] = document_path
-                def visit(node, ancestors):
+                def visit(node, ancestors, preserve=False):
                     name = tag(node)
+                    preserve = preserve or lineated(name, node.attrib)
                     if implicit and split_heading is not None and paths[id(node)] == paths[id(split_heading)]:
                         return
                     if name not in SUPPORTED:
@@ -287,17 +292,17 @@ def read_epub(path: Path, include_prologue: bool = False) -> list[Chapter]:
                         return
                     nested_block = any(tag(child) in BLOCKS for child in list(node.iter())[1:])
                     if name in BLOCKS and not nested_block:
-                        add(element_text(node), node, ancestors)
+                        add(element_text(node), node, ancestors, preserve=preserve)
                         return
                     if name in BLOCKS and nested_block:
                         warn(f"중첩 <{name}>를 하위 블록으로 분리")
                     if normalize_text(node.text or ""):
-                        add(normalize_text(node.text or ""), node, ancestors, ":text")
+                        add(normalize_text(node.text or ""), node, ancestors, ":text", preserve=preserve)
                     lineage = ancestors + [(name, node.get(EPUB_TYPE, "") + " " + node.get("role", ""))]
                     for child in node:
-                        visit(child, lineage)
+                        visit(child, lineage, preserve)
                         if normalize_text(child.tail or ""):
-                            add(normalize_text(child.tail or ""), child, lineage, ":tail")
+                            add(normalize_text(child.tail or ""), child, lineage, ":tail", preserve=preserve)
                 visit(root, [])
                 if not paragraphs:
                     logging.warning("번역 블록이 없는 문서: %s#%s (AST 파싱만 가능)", document_path, root_locator)

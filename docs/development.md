@@ -56,6 +56,7 @@ python3 scripts/check_secrets.py --all
 | `prompts.py` | Markdown 지침 로딩·필수 구역 검증·문체 표시명·JSON 출력 스키마 |
 | `pipeline.py`, `ports.py` | 번역·검수·재개·발행 흐름과 어댑터 인터페이스 |
 | `parser.py` | EPUB spine·XHTML·원문 AST·안정적인 ID 추출 |
+| `text_layout.py` | 산문 개행 정리·개행 보존 구획 판별·기존 AST 개행 정보 복원·Markdown 표현 |
 | `review_html.py` | 정렬된 원문·번역·검수 JSON의 오프라인 HTML 표현 |
 | `progress.py`, `notifications.py` | 터미널 진행률 표시와 macOS 로컬 알림 |
 | `provider.py`, `chatgpt_provider.py` | API 키/OAuth 추론 어댑터 |
@@ -67,5 +68,7 @@ python3 scripts/check_secrets.py --all
 `prompts.py`는 모듈을 불러올 때 같은 디렉터리의 UTF-8 `prompts.md`를 읽습니다. `base`, `faithful`, `modern`, `easy`, `review`를 `## 이름`으로 구분하고 본문의 바깥 공백만 제거합니다. 필수 구역 누락·빈 본문·중복·알 수 없는 구역은 `ValueError`로 실패합니다. 소스 배포 시 Markdown도 함께 포함하세요. [편집 규칙](usage.md#프롬프트-파일-편집)을 참고하세요.
 
 `tests/test_prompts.py`는 구역 로딩·잘못된 파일·다른 작업 디렉터리에서의 import와 실제 파이프라인의 번역·검수 요청 전달을 오프라인으로 확인합니다. 프롬프트 문구 자체를 고정하는 테스트는 두지 않습니다.
+
+`tests/test_text_layout.py`는 산문 개행 정리를 번역 후 검수 입력과 JSON·Markdown·HTML에 동일하게 적용하는지 확인합니다. 시·명시적 `<br>`·`pre` 보존, 오프라인 재발행의 백업·스냅샷·캐시·사용량 유지, 사람이 수정한 사본 보호와 발행 실패 시 이전 manifest 보존도 검증합니다. 모델의 어휘 선택 품질은 모의 공급자 테스트로 보장하지 않습니다.
 
 개인 개발 지침인 `CODEX_PROMPT.md`는 로컬에만 보관하고 Git 추적에서 제외합니다.

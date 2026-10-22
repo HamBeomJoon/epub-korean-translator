@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import tempfile
+import uuid
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
@@ -173,6 +174,53 @@ class FileRepository:
         if manifest is not None and aligned.get('revision') != manifest.get('revision'):
             raise ValueError('발행 manifest와 원문·번역 revision이 다릅니다.')
         return aligned, report
+
+    def read_source_data(self) -> dict:
+        if self.internal.is_symlink():
+            raise ValueError('보고서 관리 폴더에 심볼릭 링크를 사용할 수 없습니다.')
+        base = self.internal if any((self.internal / name).exists() for name in ('manifest.json', 'aligned.json')) else self.output
+        manifest_path = base / 'manifest.json'
+        relative = Path('source.json')
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            name = manifest.get('aligned')
+            if not isinstance(name, str) or not name:
+                raise ValueError('발행 원문 스냅샷의 상대 경로가 필요합니다.')
+            relative = Path(name).with_name('source.json')
+        path = base / relative
+        if relative.is_absolute() or '..' in relative.parts or not path.resolve().is_relative_to(base.resolve()):
+            raise ValueError('원문 스냅샷은 장 출력 폴더 안의 파일이어야 합니다.')
+        value = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(value, dict):
+            raise ValueError('원문 스냅샷은 JSON 객체여야 합니다.')
+        return value
+
+    def backup_publication(self) -> Path:
+        manifest_path = self.artifact_path('manifest.json')
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            references = {f'{style}.md': name for style, name in manifest.get('markdown', {}).items()}
+            references.update({'aligned.json': manifest['aligned'], 'review_report.json': manifest['review'],
+                               'source.json': str(Path(manifest['aligned']).with_name('source.json'))})
+            for name, reference in references.items():
+                relative = Path(reference)
+                published = self.internal / relative
+                if relative.is_absolute() or '..' in relative.parts or not published.resolve().is_relative_to(self.internal.resolve()):
+                    raise ValueError('백업할 스냅샷은 장 출력 폴더 안에 있어야 합니다.')
+                current = self.artifact_path(name)
+                if current.exists() and current.read_bytes() != published.read_bytes():
+                    raise ValueError(f'발행 뒤 수정된 파일이 있어 덮어쓰지 않습니다: {current}')
+        backup = self.internal / 'reflow-backups' / uuid.uuid4().hex
+        if not backup.resolve().is_relative_to(self.output.resolve()):
+            raise ValueError('출력 백업은 장 출력 폴더 안에 있어야 합니다.')
+        names = TRANSLATION_FILES | {'aligned.json', 'source.json', 'review_report.json', 'review_report.html', 'manifest.json'}
+        for name in sorted(names):
+            path = self.artifact_path(name)
+            if path.is_symlink():
+                raise ValueError(f'출력 백업에 심볼릭 링크를 사용할 수 없습니다: {path}')
+            if path.exists():
+                write_text_atomic(backup / name, path.read_text(encoding='utf-8'))
+        return backup
 
     def write_text(self, name: str, value: str) -> None:
         write_text_atomic(self.artifact_path(name), value)

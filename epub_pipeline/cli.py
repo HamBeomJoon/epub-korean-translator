@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .domain import PARSER_VERSION, signature
 from .parser import read_epub
-from .pipeline import Settings, TranslationPipeline
+from .pipeline import Settings, TranslationPipeline, reflow_saved_output
 from .pricing import RateCard
 from .prompts import STYLE_PROMPTS
 from .provider import OpenAIProvider
@@ -63,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     actions.add_argument("--chatgpt-logout", action="store_true", help="선택 profile 로그아웃·세션 해제")
     actions.add_argument("--organize-output", type=Path, help="기존 장 출력 폴더를 번역본/과 _관리/로 정리 (오프라인)")
     actions.add_argument("--review-html", type=Path, help="기존 장 출력 폴더에서 HTML 검수 보고서 생성 (오프라인)")
+    actions.add_argument("--reflow-output", type=Path, help="기존 장 출력의 산문 줄바꿈을 정리하고 백업·재발행 (오프라인)")
     actions.add_argument("--list-models", action="store_true", help="선택 ChatGPT 계정의 모델 slug 조회 (번역 없음)")
     parser.add_argument("--chatgpt-profile", default="default", help="저장 계정 이름; 새 이름으로 다른 계정 등록")
     parser.add_argument("--chatgpt-auth-dir", type=Path, help="기본 ~/.epub_translation_tool/chatgpt, 자격 증명 전용")
@@ -100,6 +101,16 @@ def _print_elapsed(label: str, seconds: float) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
+    if args.reflow_output is not None:
+        if args.input or args.dry_run or args.approve_api or args.approve_plan or args.chatgpt_enable_plan:
+            raise ValueError("--reflow-output은 번역/로그인 인자와 분리해 실행하세요.")
+        if not args.reflow_output.is_dir():
+            raise ValueError("줄바꿈을 정리할 기존 장 출력 폴더를 지정하세요.")
+        repo = FileRepository(args.reflow_output)
+        with repo.lock():
+            reflow_saved_output(repo)
+        print(f"줄바꿈 정리 완료: {repo.readable} (AI 호출 없음, 백업: {repo.internal / 'reflow-backups'})")
+        return
     if args.review_html is not None:
         if args.input or args.dry_run or args.approve_api or args.approve_plan or args.chatgpt_enable_plan:
             raise ValueError("--review-html은 번역/로그인 인자와 분리해 실행하세요.")

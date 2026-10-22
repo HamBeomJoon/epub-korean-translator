@@ -3,6 +3,7 @@ from html import escape
 
 from .domain import validate_review
 from .prompts import STYLE_NAMES
+from .text_layout import translation_text
 
 
 CATEGORY_NAMES = {'omission': '누락', 'addition': '정보 추가', 'distortion': '의미 왜곡',
@@ -97,7 +98,7 @@ def render_review_html(bundle: dict, report: dict) -> str:
                 f'<p class="text">{escape(i["description"])}</p></div>' for i in issues)
             versions.append(f'<div class="version{" flagged" if issues else ""}" data-style="{style}">'
                             f'<div class="translation"><h2>{escape(label)}</h2><span class="badge">{status}</span>'
-                            f'<p class="text">{escape(translation) if translation is not None else "아직 생성되지 않음"}</p></div>'
+                            f'<p class="text">{escape(translation_text(translation, item)) if translation is not None else "아직 생성되지 않음"}</p></div>'
                             f'<div class="findings">{descriptions or f"<p class=muted>{status}</p>"}</div></div>')
         location = '제목 (문단 0)' if number == 0 else f'문단 {number}'
         sections.append(f'<section class="paragraph" id="paragraph-{number}">'

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 VERSION = "2.0"
-PARSER_VERSION = "4"
+PARSER_VERSION = "5"
 
 
 @dataclass(frozen=True)

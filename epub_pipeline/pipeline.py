@@ -18,6 +18,7 @@ from .ports import LLMProvider, Repository
 from .pricing import RateCard, summarize
 from .prompts import BASE_PROMPT, STYLE_PROMPTS, STYLE_NAMES, RESULT_SCHEMA, REVIEW_SCHEMA, REVIEW_PROMPT
 from .review_html import render_review_html
+from .text_layout import annotate_layout, render_markdown, translation_text
 
 
 @dataclass
@@ -317,7 +318,10 @@ class TranslationPipeline:
                         self._progress(ProgressEvent(chapter.index, style, stage, phase, batch_number, batches,
                                                      completed, total, self.cache_hits - previous_hits, attempt, wait_seconds))
                 try:
-                    translated = self._execute(request, lambda r: validate_result(batch, r), emit)
+                    def validate_translation(result):
+                        values = validate_result(batch, result)
+                        return {p["id"]: translation_text(values[p["id"]], p) for p in batch}
+                    translated = self._execute(request, validate_translation, emit)
                     emit('completed')
                     reviewed = []
                     if self.settings.review:
@@ -363,6 +367,8 @@ class TranslationPipeline:
         for style, values in translations.items():
             if list(values) != expected:
                 raise ValueError(f"{style}: 최종 문단 ID/순서 불일치")
+        translations = {style: {p["id"]: translation_text(values[p["id"]], p) for p in chapter.items}
+                        for style, values in translations.items()}
         def status(pid, style):
             if style not in translations:
                 return "not_generated"
@@ -400,15 +406,7 @@ class TranslationPipeline:
                                  "paragraphs": chapter.paragraphs, "ast": chapter.ast, "warnings": chapter.warnings}}
         markdown = {}
         for style, values in translations.items():
-            chunks = []
-            for p in chapter.paragraphs:
-                text = values[p["id"]]
-                if p.get("kind") == "heading":
-                    text = "## " + text.replace("\n", " ")
-                elif p.get("kind") == "quote":
-                    text = "\n".join("> " + line for line in text.splitlines())
-                chunks.append(text.replace("\n", "  \n") if p.get("kind") != "quote" else text)
-            markdown[f"{style}.md"] = "# " + values[chapter.items[0]["id"]].replace("\n", " ") + "\n\n" + "\n\n".join(chunks) + "\n"
+            markdown[f"{style}.md"] = render_markdown(values[chapter.items[0]["id"]], chapter.paragraphs, values)
         # Immutable generation + atomic pointer under the internal directory.
         for name, value in files.items():
             self.repo.write(f"generations/{revision}/{name}", value)
@@ -426,3 +424,33 @@ class TranslationPipeline:
                                          "review_html": f"generations/{revision}/review_report.html",
                                          "markdown": {s: f"generations/{revision}/{s}.md" for s in translations}})
         return bundle
+
+
+def reflow_saved_output(repository):
+    """Republish layout from saved source/translation snapshots without inference."""
+    from .domain import Chapter
+    bundle, report = repository.read_review_data()
+    source = repository.read_source_data()
+    if source.get("chapter_id") != bundle.get("chapter_id") or source.get("version") != bundle.get("version"):
+        raise ValueError("원문과 번역 스냅샷의 장 ID 또는 버전이 다릅니다.")
+    paragraphs = source["paragraphs"]
+    if [p["id"] for p in paragraphs] != [p["id"] for p in bundle["paragraphs"]]:
+        raise ValueError("원문과 번역 스냅샷의 문단 ID가 다릅니다.")
+    annotate_layout(paragraphs, source["ast"])
+    chapter = Chapter(bundle["chapter"], source["title"], source["source_file"], paragraphs,
+                      "prologue" if bundle["chapter"] == 0 else "chapter", bundle["chapter_id"],
+                      source["ast"], source.get("warnings", []), bundle["title"]["source_text"])
+    styles = tuple(bundle["generated_styles"])
+    reviewed = {report[style]["ai_review_executed"] for style in styles}
+    if len(reviewed) != 1:
+        raise ValueError("문체별 검수 실행 상태가 다른 결과는 오프라인 재정렬할 수 없습니다.")
+    settings = Settings(model=bundle["model"], provider=bundle.get("provider", "openai"),
+                        review_model=bundle.get("review_model"), styles=styles, review=reviewed.pop())
+    items = [bundle["title"], *bundle["paragraphs"]]
+    translations = {style: {p["id"]: p["translations"][style] for p in items} for style in styles}
+    issues = {style: [{key: issue[key] for key in ("id", "category", "description")}
+                      for issue in report[style]["issues"]] for style in styles}
+    for style in styles:
+        validate_review(chapter.items, {"issues": issues[style]})
+    repository.backup_publication()
+    return TranslationPipeline(repository, settings)._export(chapter, bundle["version"], translations, issues, bundle["sample"])

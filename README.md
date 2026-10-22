@@ -94,6 +94,12 @@ open "output/book/chapter-01/_관리/review_report.html"
 
 AI 검수는 문제를 보고하며 **번역문을 자동 수정하지 않습니다.** 지적이 없더라도 사람의 최종 검토가 필요합니다. 캐시·사용량 원장·스냅샷은 재개와 앱 연동에 필요하므로 임의로 삭제하지 마세요.
 
+일반 산문의 문단 안 줄바꿈은 공백으로 이어 읽기 편하게 저장하고, 시·명시적 개행·공백 보존 구획은 유지합니다. 기존 결과도 AI 호출 없이 정리할 수 있습니다. 정리 전 파일은 `_관리/reflow-backups/`에 백업하고 새 스냅샷을 발행합니다.
+
+```bash
+python translate_epub.py --reflow-output "output/book/chapter-01"
+```
+
 ## 개발과 문서
 
 Git 저장소를 clone한 뒤 커밋 전 보호를 한 번 설치하세요.
