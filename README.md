@@ -41,6 +41,8 @@ python translate_epub.py --list-models
 
 먼저 장 목록과 실행 계획을 확인합니다. 이 단계는 API를 호출하지 않습니다.
 
+EPUB 내부 파일 하나에 여러 장이 있거나 한 장이 여러 파일에 걸칠 수 있으므로, 새 판본은 `--list-chapters`에서 실제 장 제목과 문단 수를 먼저 확인하세요. 장 구분은 EPUB의 구조 표식을 따릅니다. [장 구분 안내](docs/usage.md#장-구분-확인)를 참고하세요.
+
 ```bash
 python translate_epub.py --input "/path/to/book.epub" --list-chapters
 python translate_epub.py --input "/path/to/book.epub" \

@@ -17,16 +17,19 @@ python3 -m compileall -q epub_pipeline translate_epub.py tests scripts
 
 병렬 테스트는 실제 네트워크 없이 동기화 장벽으로 두 요청의 겹침과 상한을 확인하고, 순차 실행과 요청·캐시·출력을 비교합니다. 역순 완료·재시도·실패 후 재개·중단 시 사용량 보존·ChatGPT 모델 목록과 토큰 조회의 동기화도 검증합니다. 요청 순서나 가짜 시계를 검증하는 기존 테스트는 `workers=1`을 명시합니다. 파이프라인은 진행률 콜백을 작업 스레드에서 호출할 수 있습니다.
 
-실제 데미안 8개 장·1장 91문단 회귀 테스트는 사용자가 해당 판본을 별도로 준비했을 때만 실행합니다. 미지정 시 이 테스트 1개만 skip되며 EPUB은 저장소에 포함하지 않습니다.
+`tests/test_parser_chapters.py`는 합성 EPUB으로 NCX·EPUB 3 목차 경계, 한 파일 안의 여러 장, 파일을 넘어 이어지는 장, 프롤로그·구텐베르크 안내문 제외, 원문 XML 위치와 본문 보존, `--chapter 1`의 번역 요청 범위를 검증합니다. 구조 표식이 있는 기존 파싱 방식도 회귀 검사합니다.
+
+실제 데미안 회귀 테스트는 사용자가 해당 판본을 별도로 준비했을 때만 실행합니다. 영어판은 8개 장·1장 91문단, 독일어 구텐베르크판은 8개 장·1장 94문단과 2·4·7장의 파일 간 연결을 확인합니다. 각 경로 미지정 시 해당 테스트를 skip하며 EPUB은 저장소에 포함하지 않습니다.
 
 ```bash
 DEMIAN_EPUB=/path/to/hermann-hesse_demian_n-h-priday.epub \
+  DEMIAN_GERMAN_EPUB=/path/to/demian_germany.epub \
   python3 -m unittest discover -s tests -v
 ```
 
 ## push 자동 검사와 커밋 전 보호
 
-[GitHub Actions](https://docs.github.com/en/actions/tutorials/build-and-test-code/python)는 `main`에 push하면 Python 3.10·3.13에서 비밀정보 검사, 문법 검사, 오프라인 테스트를 실행합니다. PR 없이 `기능 수정 → 커밋 → push → Actions 결과 확인` 순서로 사용할 수 있습니다. 향후 `main` 대상 PR에도 같은 검사를 실행하며 Actions 화면에서 수동 실행도 가능합니다. EPUB·API 키·GitHub Secrets 등록은 필요 없고 실제 번역 API는 호출하지 않습니다. 실제 책 회귀 테스트 1개는 건너뜁니다.
+[GitHub Actions](https://docs.github.com/en/actions/tutorials/build-and-test-code/python)는 `main`에 push하면 Python 3.10·3.13에서 비밀정보 검사, 문법 검사, 오프라인 테스트를 실행합니다. PR 없이 `기능 수정 → 커밋 → push → Actions 결과 확인` 순서로 사용할 수 있습니다. 향후 `main` 대상 PR에도 같은 검사를 실행하며 Actions 화면에서 수동 실행도 가능합니다. EPUB·API 키·GitHub Secrets 등록은 필요 없고 실제 번역 API는 호출하지 않습니다. 실제 책 회귀 테스트 2개는 건너뜁니다.
 
 커밋 전 보호는 clone한 Git 저장소에서 **한 번 설치**합니다. Git hook 설정은 clone에 포함되지 않으므로 새 컴퓨터나 새 clone에서는 다시 설치하세요.
 

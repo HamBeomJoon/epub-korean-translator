@@ -156,7 +156,8 @@ def run(args: argparse.Namespace) -> None:
     chapters = read_epub(args.input, args.include_prologue or args.chapter == 0)
     if args.list_chapters:
         for ch in chapters:
-            print(f"{ch.index:>2} | {ch.title} | {len(ch.paragraphs)}문단 | {ch.source_file} | {ch.chapter_id}")
+            title = " ".join(ch.title.split())
+            print(f"{ch.index:>2} | {title} | {len(ch.paragraphs)}문단 | {ch.source_file} | {ch.chapter_id}")
         return
     settings = Settings(model=model, provider=args.provider, review_model=args.review_model, styles=tuple(args.styles),
                         review=args.review, max_chars=args.max_chars, max_items=args.max_items,

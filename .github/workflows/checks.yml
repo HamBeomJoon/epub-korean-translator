@@ -25,6 +25,7 @@ jobs:
         python: ['3.10', '3.13']
     env:
       DEMIAN_EPUB: ''
+      DEMIAN_GERMAN_EPUB: ''
     steps:
       - uses: actions/checkout@v6
         with:
