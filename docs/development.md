@@ -48,7 +48,9 @@ python3 scripts/check_secrets.py --all
 |---|---|
 | `translate_epub.py` | CLI 진입점과 종료 코드 |
 | `epub_pipeline/cli.py` | 인자·승인·의존성 조립 |
-| `domain.py`, `prompts.py` | 데이터·검증과 번역/검수 프롬프트·스키마 |
+| `domain.py` | 도메인 데이터와 응답 검증 |
+| `prompts.md` | 공통 번역·문체별·원문 대조 검수 지침 |
+| `prompts.py` | Markdown 지침 로딩·필수 구역 검증·문체 표시명·JSON 출력 스키마 |
 | `pipeline.py`, `ports.py` | 번역·검수·재개·발행 흐름과 어댑터 인터페이스 |
 | `parser.py` | EPUB spine·XHTML·원문 AST·안정적인 ID 추출 |
 | `review_html.py` | 정렬된 원문·번역·검수 JSON의 오프라인 HTML 표현 |
@@ -58,5 +60,9 @@ python3 scripts/check_secrets.py --all
 | `repository.py`, `pricing.py` | 출력·캐시·사용량 저장과 외부 요금 계산 |
 
 `translate_epub.py`는 CLI 전용입니다. Python에서 기능을 사용할 때는 `epub_pipeline`의 해당 모듈을 직접 import하세요. 사용하지 않는 구형 MVP의 `compat.py`와 `api_json`, `translate_batch`, `review_batch` 재노출은 제거했습니다. 명령행 옵션과 기존 출력 형식은 유지합니다.
+
+`prompts.py`는 모듈을 불러올 때 같은 디렉터리의 UTF-8 `prompts.md`를 읽습니다. `base`, `faithful`, `modern`, `easy`, `review`를 `## 이름`으로 구분하고 본문의 바깥 공백만 제거합니다. 필수 구역 누락·빈 본문·중복·알 수 없는 구역은 `ValueError`로 실패합니다. 소스 배포 시 Markdown도 함께 포함하세요. [편집 규칙](usage.md#프롬프트-파일-편집)을 참고하세요.
+
+`tests/test_prompts.py`는 구역 로딩·잘못된 파일·다른 작업 디렉터리에서의 import와 실제 파이프라인의 번역·검수 요청 전달을 오프라인으로 확인합니다. 프롬프트 문구 자체를 고정하는 테스트는 두지 않습니다.
 
 개인 개발 지침인 `CODEX_PROMPT.md`는 로컬에만 보관하고 Git 추적에서 제외합니다.

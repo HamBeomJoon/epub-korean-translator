@@ -50,6 +50,12 @@ python translate_epub.py --input "/path/to/book.epub" \
 
 API 키 방식은 ChatGPT 구독과 별도 과금이며 `--provider openai --approve-api`로 실행합니다. [상세 사용법](docs/usage.md)을 참고하세요. 승인 없는 실행과 `--dry-run`은 번역 요청을 보내지 않습니다.
 
+## 번역 지침 수정
+
+번역·검수 지침은 [epub_pipeline/prompts.md](epub_pipeline/prompts.md)에서 수정합니다. `base`는 공통 번역 원칙, `faithful`·`modern`·`easy`는 문체별 지침, `review`는 원문 대조 검수 지침입니다. `##`로 시작하는 구역 이름은 유지하고 그 아래 본문을 편집하세요. JSON 출력 스키마와 로딩 코드는 `epub_pipeline/prompts.py`에서 관리합니다.
+
+프로그램은 시작할 때 Markdown을 읽습니다. 수정한 지침은 다음 실행부터 적용되며, 지침이 바뀐 번역·검수 요청은 기존 캐시를 재사용하지 않습니다. 작품별 인물·말투·용어 지침은 `--consistency`·`--glossary`로 전달하세요. [상세 안내](docs/usage.md#프롬프트-파일-편집)를 참고하세요.
+
 ## 결과 확인
 
 기본 출력 위치는 `output/<EPUB 파일명>/chapter-01/`입니다.
