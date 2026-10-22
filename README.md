@@ -4,6 +4,36 @@
 
 Python 3.10+와 macOS/Linux를 지원합니다. Windows는 현재 지원하지 않습니다.
 
+## 전체 과정 한눈에 보기
+
+원문을 준비하고 실행 계획을 확인한 뒤, 사용량 사용을 승인하면 번역을 시작합니다. 기본값은 세 문체를 모두 생성하며 `--styles`로 필요한 문체만 선택할 수 있습니다.
+
+```mermaid
+flowchart TD
+    Source["EPUB 원문 준비"] --> Plan["장 선택 · 문단 추출 · 실행 계획 확인<br/>--dry-run: AI 호출 없음"]
+    Plan --> Approval["사용량 사용 승인 후 실행"]
+    Approval --> Faithful
+    Approval --> Modern
+    Approval --> Easy
+
+    subgraph Work["문단 배치마다 독립 실행 · 기본 동시 2작업"]
+        Faithful["원문 충실형<br/>번역 → 선택 검수"]
+        Modern["자연스러운 현대어<br/>번역 → 선택 검수"]
+        Easy["쉬운 한국어<br/>번역 → 선택 검수"]
+    end
+
+    Prompts["prompts.md<br/>공통 원칙 · 문체별 지침 · 검수 지침"] -.-> Work
+    Faithful --> Save["문단 ID 순서로 결과 저장"]
+    Modern --> Save
+    Easy --> Save
+    Save --> Output["문체별 Markdown · 앱용 JSON · HTML 비교 보고서"]
+    Output --> Human["사람이 원문·번역·지적 사항을 확인하고 최종 검토"]
+```
+
+세 문체는 같은 원문에서 각각 번역합니다. 번역 기준은 `prompts.md`에서, 작품별 인물·말투·용어는 `--consistency`·`--glossary`로 지정합니다. `--review`를 켜면 각 번역 배치 뒤에 원문 대조 검수를 추가하며, 지적과 수정 제안은 보고서에 기록합니다. **검수 결과가 번역문을 자동으로 수정하지는 않습니다.**
+
+같은 요청의 검증된 캐시가 있으면 새 AI 호출 대신 재사용합니다. 결과를 확인할 때는 `review_report.html`을 열어 원문과 문체별 번역을 나란히 비교하면 됩니다.
+
 ## 설치
 
 ```bash
