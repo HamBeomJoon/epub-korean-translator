@@ -1,7 +1,6 @@
 """Offline progress and notification tests; real desktop alerts are mocked."""
 import io
 import subprocess
-import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -79,7 +78,6 @@ class ProgressTest(OfflineTestCase):
         with patch('epub_pipeline.progress.time.monotonic', return_value=1703):
             with TerminalProgress(3, 1, 2, 200, stream=stream) as progress:
                 progress.update(event)
-                self.assertIsNone(progress._thread)
         text = stream.getvalue()
         for value in ('선택 1/2 · 3장', '자연스러운 현대어', 'AI 검수', '현재 배치 2/4',
                       '완료 작업 7/24', '캐시 3', '재시도 대기 5초', '경과 25분 3초'):
@@ -95,23 +93,30 @@ class ProgressTest(OfflineTestCase):
         with TerminalProgress(3, 1, 2, 0, stream=closed) as progress:
             progress.update(event)
 
-    def test_대화형_터미널은_대기_중에도_갱신하고_종료하면_스레드를_정리한다(self):
+    def test_대화형_터미널은_작업_이벤트가_올_때만_진행률과_경과_시간을_갱신한다(self):
         class LiveStream(io.StringIO):
-            def __init__(self):
-                super().__init__()
-                self.refreshed = threading.Event()
-                self.writes = 0
             def isatty(self):
                 return True
-            def write(self, text):
-                self.writes += 1
-                if self.writes >= 2:
-                    self.refreshed.set()
-                return super().write(text)
         stream = LiveStream()
-        with TerminalProgress(3, 1, 1, 0, stream=stream) as progress:
-            self.assertTrue(stream.refreshed.wait(3))
-        self.assertFalse(progress._thread.is_alive())
+        clock = [100.0]
+        with patch('epub_pipeline.progress.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('epub_pipeline.progress.threading.Thread', side_effect=AssertionError('주기적 갱신 금지')):
+            with TerminalProgress(3, 1, 1, 100, stream=stream) as progress:
+                initial = stream.getvalue()
+                self.assertIn('경과 0분 0초', initial)
+                clock[0] += 65
+                self.assertEqual(stream.getvalue(), initial)
+                progress.update(ProgressEvent(3, 'faithful', 'translation', 'request', 1, 1, 0, 2, 0, 1))
+                requested = stream.getvalue()
+                self.assertIn('완료 작업 0/2', requested)
+                self.assertIn('경과 1분 5초', requested)
+                clock[0] += 65
+                self.assertEqual(stream.getvalue(), requested)
+                progress.update(ProgressEvent(3, 'faithful', 'translation', 'completed', 1, 1, 1, 2, 0))
+                line = stream.getvalue().rsplit('\r', 1)[-1]
+                self.assertIn('완료 작업 1/2', line)
+                self.assertIn('경과 2분 10초', line)
+        self.assertEqual(stream.getvalue().count('\r\033[2K'), 3)
         self.assertTrue(stream.getvalue().endswith('\n'))
 
     def test_먼저_끝난_작업_대신_실제로_진행_중인_문체를_표시한다(self):

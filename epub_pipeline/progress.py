@@ -1,4 +1,4 @@
-"""Terminal progress adapter; periodic refresh is restricted to interactive stderr."""
+"""Terminal progress adapter; render only when work events arrive."""
 import sys
 import threading
 import time
@@ -26,8 +26,6 @@ class TerminalProgress:
         self.event: ProgressEvent | None = None
         self._active: dict[tuple, ProgressEvent] = {}
         self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._thread = None
         self._line_open = False
 
     def _render(self):
@@ -75,23 +73,12 @@ class TerminalProgress:
                 self._active.clear()
             self._render()
 
-    def _refresh(self):
-        while not self._stop.wait(1):
-            with self._lock:
-                self._render()
-
     def __enter__(self):
         with self._lock:
             self._render()
-        if self.live:
-            self._thread = threading.Thread(target=self._refresh, name='epub-progress', daemon=True)
-            self._thread.start()
         return self
 
     def __exit__(self, *_):
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join()
         if self._line_open:
             try:
                 self.stream.write('\n')
