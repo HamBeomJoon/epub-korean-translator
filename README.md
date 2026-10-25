@@ -68,6 +68,8 @@ API 키 방식은 ChatGPT 구독과 별도 과금이며 `--provider openai --app
 
 번역·검수 지침은 [epub_pipeline/prompts.md](epub_pipeline/prompts.md)에서 수정합니다. `base`는 공통 번역 원칙, `faithful`·`modern`·`easy`는 문체별 지침, `review`는 원문 대조 검수 지침입니다. `##`로 시작하는 구역 이름은 유지하고 그 아래 본문을 편집하세요. JSON 출력 스키마와 로딩 코드는 `epub_pipeline/prompts.py`에서 관리합니다.
 
+독일어·영어 원문은 각 언어의 문법·문맥에 따라 한국어로 직접 번역하도록 지시합니다. 문장 구성과 호흡까지 원문에 가깝게 옮기려면 `--styles faithful --review`를 사용하세요. 입력이 영어 번역판이면 그 영어 저본을 기준으로 하므로, 독일어 원작에서 직접 옮기려면 독일어 원문 EPUB을 준비해야 합니다.
+
 프로그램은 시작할 때 Markdown을 읽습니다. 수정한 지침은 다음 실행부터 적용되며, 지침이 바뀐 번역·검수 요청은 기존 캐시를 재사용하지 않습니다. 작품별 인물·말투·용어 지침은 `--consistency`·`--glossary`로 전달하세요. [상세 안내](docs/usage.md#프롬프트-파일-편집)를 참고하세요.
 
 ## 결과 확인
